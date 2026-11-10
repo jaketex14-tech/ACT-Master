@@ -1000,6 +1000,7 @@
         document.getElementById('topBarUserName').textContent = 'Administrator';
         document.getElementById('drawerUserName').textContent = 'Administrator';
         document.getElementById('drawerUserRole').textContent = 'Admin Portal';
+        updateTopBarIndicators();
         openAdminPage('reconcile');
       } else {
         currentRole = 'crew';
@@ -1008,6 +1009,7 @@
         document.getElementById('drawerUserName').textContent = empRecord ? empRecord.full_name : 'Crew Member';
         document.getElementById('drawerUserRole').textContent = 'Crew Member';
         document.getElementById('topBarPageTitle').textContent = 'Receipts';
+        updateTopBarIndicators();
         selectMenuFeature('receipts');
       }
     }
@@ -1023,6 +1025,7 @@
     }
 
     function openSideMenu() {
+      updateTopBarIndicators();
       document.getElementById('sideMenuBackdrop').classList.remove('hidden');
       document.getElementById('sideMenuDrawer').classList.remove('-translate-x-full');
     }
@@ -1043,8 +1046,12 @@
 
       if (featureKey === 'receipts') {
         otherView.classList.add('hidden');
-        crewView.classList.toggle('hidden', currentRole !== 'crew');
-        adminView.classList.toggle('hidden', currentRole !== 'admin');
+        if (currentRole === 'admin') {
+          openAdminPage(currentAdminPage || 'reconcile');
+          return;
+        }
+        crewView.classList.remove('hidden');
+        adminView.classList.add('hidden');
       } else {
         const titles = { forms: 'Field Forms', timecards: 'Time Cards', payroll: 'Payroll' };
         document.getElementById('otherModuleTitle').textContent = titles[featureKey] || 'Module';
@@ -1060,6 +1067,7 @@
     function openAdminPage(pageKey) {
       if (currentRole !== 'admin') return;
       currentAdminPage = pageKey;
+      updateTopBarIndicators();
 
       document.getElementById('viewOtherModule').classList.add('hidden');
       document.getElementById('viewCrew').classList.add('hidden');
