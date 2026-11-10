@@ -1,0 +1,2883 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+  <title>FieldOps — Receipts & Reconciler</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/heic2any@0.0.4/dist/heic2any.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+  <style>
+    :root { --safe-bottom: env(safe-area-inset-bottom, 16px); }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      background-color: #0f172a;
+      color: #f8fafc;
+      padding-bottom: calc(24px + var(--safe-bottom));
+      -webkit-tap-highlight-color: transparent;
+    }
+    .custom-scroll::-webkit-scrollbar { width: 6px; height: 6px; }
+    .custom-scroll::-webkit-scrollbar-thumb { background: #334155; border-radius: 9999px; }
+    .zoom-Viewport {
+      touch-action: none;
+      user-select: none;
+      -webkit-user-select: none;
+    }
+  </style>
+</head>
+<body class="min-h-screen selection:bg-emerald-500 selection:text-white">
+
+  <!-- MINIMALIST STATUS TOAST -->
+  <div id="statusToast" class="fixed top-16 left-1/2 -translate-x-1/2 z-50 hidden px-5 py-2.5 rounded-xl font-bold text-sm shadow-2xl transition-all"></div>
+
+  <!-- LOGIN SCREEN -->
+  <section id="loginScreen" class="fixed inset-0 z-50 bg-slate-950 flex flex-col items-center justify-center p-4 overflow-y-auto">
+    <div class="w-full max-w-sm bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-2xl space-y-5">
+      <div class="flex flex-col items-center text-center space-y-2">
+        <div class="w-14 h-14 rounded-2xl bg-emerald-600 flex items-center justify-center font-black text-white text-xl shadow-lg shadow-emerald-600/20">FO</div>
+        <div>
+          <h1 class="text-lg font-extrabold text-white tracking-tight">FieldOps Portal</h1>
+          <p class="text-xs text-slate-400">Select your name and enter your 4-digit PIN</p>
+        </div>
+      </div>
+
+      <form onsubmit="handleLoginSubmit(event)" class="space-y-4">
+        <div>
+          <label class="block text-xs font-bold text-slate-300 mb-1.5">Select User</label>
+          <select id="loginUserSelect" required class="w-full bg-slate-950 border border-slate-700 rounded-xl px-3.5 py-3 text-xs font-semibold text-white focus:outline-none focus:border-emerald-500">
+          </select>
+        </div>
+
+        <div>
+          <div class="flex items-center justify-between mb-1.5">
+            <label class="text-xs font-bold text-slate-300">Login PIN</label>
+            <span class="text-[11px] text-slate-400 font-mono">Default PIN: 1234</span>
+          </div>
+          <input
+            type="password"
+            id="loginPinInput"
+            inputmode="numeric"
+            maxlength="4"
+            placeholder="••••"
+            required
+            class="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-3 text-center text-lg tracking-[0.5em] font-mono font-bold text-emerald-400 focus:outline-none focus:border-emerald-500"
+          />
+        </div>
+
+        <div id="loginErrorMsg" class="hidden p-2.5 rounded-xl bg-red-950/90 border border-red-500/60 text-red-200 text-xs font-semibold text-center">
+          Invalid PIN. Please enter 1234.
+        </div>
+
+        <button type="submit" class="w-full py-3.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 active:scale-[0.99] text-white font-bold text-xs shadow-lg shadow-emerald-600/20 transition cursor-pointer">
+          Sign In
+        </button>
+      </form>
+    </div>
+  </section>
+
+  <!-- TOP-LEFT SLIDE-OUT MENU DRAWER -->
+  <div id="sideMenuBackdrop" onclick="closeSideMenu()" class="fixed inset-0 z-50 hidden bg-black/70 backdrop-blur-xs transition-opacity"></div>
+  <aside id="sideMenuDrawer" class="fixed top-0 left-0 bottom-0 z-50 w-72 max-w-[85vw] bg-slate-900 border-r border-slate-800 shadow-2xl transform -translate-x-full transition-transform duration-200 ease-out flex flex-col justify-between">
+    <div class="p-4 space-y-5 overflow-y-auto custom-scroll">
+      <!-- Drawer Header -->
+      <div class="flex items-center justify-between border-b border-slate-800 pb-3">
+        <div class="flex items-center gap-2.5">
+          <div class="w-8 h-8 rounded-xl bg-emerald-600 flex items-center justify-center font-black text-white text-sm shadow">FO</div>
+          <div>
+            <h2 id="drawerUserName" class="text-sm font-bold text-white leading-tight">FieldOps</h2>
+            <p id="drawerUserRole" class="text-[11px] text-emerald-400 font-semibold">Crew Member</p>
+          </div>
+        </div>
+        <button onclick="closeSideMenu()" class="p-1.5 rounded-lg bg-slate-800 text-slate-400 hover:text-white text-xs font-bold">✕</button>
+      </div>
+
+      <!-- Features / Modules List -->
+      <div class="space-y-1">
+        <p class="px-2 text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1.5">Features</p>
+        <button id="menuFeatReceipts" onclick="selectMenuFeature('receipts')" class="w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-bold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 transition">
+          <span class="flex items-center gap-2.5">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 14l6-6m-5.5.5h.01m4.99 5h.01M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16l3.5-2 3.5 2 3.5-2 3.5 2z"/></svg>
+            Receipts & Reconciler
+          </span>
+          <span class="text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300">Active</span>
+        </button>
+
+        <!-- Future Features: Hidden for Crew Members, Visible Only to Admins -->
+        <div id="drawerAdminFutureFeatures" class="hidden space-y-1 pt-1">
+          <button id="menuFeatForms" onclick="selectMenuFeature('forms')" class="w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-semibold text-slate-300 hover:bg-slate-800 hover:text-white transition">
+            <span class="flex items-center gap-2.5">
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+              Field Forms
+            </span>
+          </button>
+          <button id="menuFeatTimecards" onclick="selectMenuFeature('timecards')" class="w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-semibold text-slate-300 hover:bg-slate-800 hover:text-white transition">
+            <span class="flex items-center gap-2.5">
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+              Time Cards
+            </span>
+          </button>
+          <button id="menuFeatPayroll" onclick="selectMenuFeature('payroll')" class="w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-semibold text-slate-300 hover:bg-slate-800 hover:text-white transition">
+            <span class="flex items-center gap-2.5">
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+              Payroll
+            </span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Admin Pages (Each opens a dedicated, single-purpose page) -->
+      <div id="drawerAdminSection" class="hidden space-y-1 border-t border-slate-800 pt-4">
+        <p class="px-2 text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1.5">Admin Pages</p>
+        <button id="navAdmin_reconcile" onclick="openAdminPage('reconcile')" class="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-xs font-semibold transition">
+          <span class="w-2 h-2 rounded-full bg-indigo-400"></span>
+          Statement Reconciler
+        </button>
+        <button id="navAdmin_employees" onclick="openAdminPage('employees')" class="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-xs font-semibold transition">
+          <span class="w-2 h-2 rounded-full bg-indigo-400"></span>
+          Employees & Cards
+        </button>
+        <button id="navAdmin_jobs" onclick="openAdminPage('jobs')" class="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-xs font-semibold transition">
+          <span class="w-2 h-2 rounded-full bg-indigo-400"></span>
+          Jobs & Cost Codes
+        </button>
+        <button id="navAdmin_statement_csv" onclick="openAdminPage('statement_csv')" class="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-xs font-semibold transition">
+          <span class="w-2 h-2 rounded-full bg-indigo-400"></span>
+          Upload Statement CSV
+        </button>
+        <button id="navAdmin_batch_receipts" onclick="openAdminPage('batch_receipts')" class="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-xs font-semibold transition">
+          <span class="w-2 h-2 rounded-full bg-indigo-400"></span>
+          Batch Upload Receipts
+        </button>
+      </div>
+
+      <!-- Admin Options & Tools (Each opens its own dedicated page) -->
+      <div id="drawerOptionsSection" class="hidden space-y-1 border-t border-slate-800 pt-4">
+        <p class="px-2 text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1.5">Options & Tools</p>
+        <button id="navAdmin_ocr_key" onclick="openAdminPage('ocr_key')" class="w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-semibold transition">
+          <span>OCR API Key Setup</span>
+          <span id="drawerKeyStatus" class="text-[10px] text-emerald-400 font-mono">Active</span>
+        </button>
+        <button id="navAdmin_export_csv" onclick="openAdminPage('export_csv')" class="w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-semibold transition">
+          <span>Export Reconciled CSV</span>
+          <span class="text-[10px] text-slate-400">Page</span>
+        </button>
+        <button id="navAdmin_network" onclick="openAdminPage('network')" class="w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-semibold transition">
+          <span>Network / Offline Mode</span>
+          <span id="drawerNetStatus" class="text-[10px] text-emerald-400 font-bold">Online</span>
+        </button>
+      </div>
+    </div>
+
+    <!-- Drawer Footer -->
+    <div class="p-4 border-t border-slate-800 space-y-2">
+      <button onclick="closeSideMenu(); logoutUser();" class="w-full py-2.5 px-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-white border border-slate-700 font-bold text-xs transition">
+        Switch User / Log Out
+      </button>
+      <button id="drawerResetDataBtn" onclick="openAdminPage('reset_data')" class="hidden w-full py-2 px-3 rounded-xl bg-red-950/60 hover:bg-red-900/70 text-red-300 border border-red-500/30 font-bold text-xs transition">
+        Reset App Data
+      </button>
+    </div>
+  </aside>
+
+  <!-- CLEAN SINGLE-ROW TOP BAR -->
+  <header class="sticky top-0 z-40 bg-slate-900/95 backdrop-blur border-b border-slate-800 px-3 py-2.5">
+    <div class="max-w-5xl mx-auto flex items-center justify-between gap-2">
+      <div class="flex items-center gap-2.5 min-w-0">
+        <button onclick="openSideMenu()" aria-label="Open Menu" class="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-100 border border-slate-700 shadow-xs active:scale-95 transition flex items-center gap-1.5 shrink-0">
+          <svg class="w-5 h-5 text-emerald-400" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M4 6h16M4 12h16M4 18h16" />
+          </svg>
+          <span class="text-xs font-bold pr-0.5">Menu</span>
+        </button>
+        <span id="topBarPageTitle" class="text-xs font-bold text-slate-300 truncate">Receipts</span>
+      </div>
+
+      <div class="flex items-center gap-2 shrink-0">
+        <div class="flex items-center gap-2 bg-slate-800/90 border border-slate-700 rounded-xl px-3 py-1.5">
+          <span id="topBarStatusDot" class="w-2 h-2 rounded-full bg-emerald-400"></span>
+          <span id="topBarUserName" class="text-xs font-bold text-white">Not Signed In</span>
+        </div>
+        <button onclick="logoutUser()" title="Switch User / Log Out" class="px-2.5 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 active:scale-95 text-slate-300 hover:text-white border border-slate-700 text-xs font-bold transition">
+          Switch User
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <!-- MAIN WORKSPACE -->
+  <main class="max-w-5xl mx-auto px-3 pt-4 pb-8">
+
+    <!-- PLACEHOLDER MODULE VIEW (Forms, Time Cards, Payroll) -->
+    <section id="viewOtherModule" class="hidden max-w-md mx-auto">
+      <div class="bg-slate-800 border border-slate-700 rounded-2xl p-6 text-center space-y-3">
+        <div class="w-12 h-12 rounded-2xl bg-slate-900 border border-slate-700 mx-auto flex items-center justify-center text-emerald-400 font-bold text-lg">FO</div>
+        <h2 id="otherModuleTitle" class="text-base font-bold text-white">Module</h2>
+        <p class="text-xs text-slate-400 leading-relaxed">Select an option from the top-left menu to return to your workspace.</p>
+        <button onclick="selectMenuFeature('receipts')" class="px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow transition">
+          Return to Receipts & Reconciler
+        </button>
+      </div>
+    </section>
+
+    <!-- CREW VIEW: SINGLE OR MULTI-RECEIPT CAPTURE & BLIND OCR -->
+    <section id="viewCrew" class="max-w-md mx-auto space-y-4">
+      <div class="bg-slate-800 border border-slate-700 rounded-2xl p-4 flex items-center justify-between">
+        <div>
+          <p class="text-xs text-slate-400">Employee</p>
+          <h1 id="crewHeaderName" class="text-base font-bold text-white">--</h1>
+        </div>
+        <div class="text-right">
+          <p class="text-xs text-slate-400">Card</p>
+          <span id="crewHeaderCard" class="font-mono text-sm font-bold text-emerald-400">•••• ----</span>
+        </div>
+      </div>
+
+      <!-- Missing Receipt Alert -->
+      <div id="crewMissingAlert" class="hidden bg-red-950/80 border border-red-500/50 rounded-2xl p-3.5">
+        <p class="text-xs font-bold text-red-300 uppercase">Missing Receipt Needed</p>
+        <div id="crewMissingText" class="text-xs text-red-100 mt-1.5 space-y-1.5"></div>
+      </div>
+
+      <!-- Receipt Capture Card -->
+      <div class="bg-slate-800 border border-slate-700 rounded-2xl p-4 space-y-4">
+        <input type="file" id="cameraInput" accept="image/*" capture="environment" class="hidden" onchange="handleCrewSingleFile(event)" />
+        <input type="file" id="singleFileInput" accept="image/*,application/pdf,.heic,.heif" class="hidden" onchange="handleCrewSingleFile(event)" />
+
+        <div id="captureButtonsGrid" class="grid grid-cols-2 gap-3">
+          <button type="button" onclick="document.getElementById('cameraInput').click()" class="flex flex-col items-center justify-center gap-1.5 py-4 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 active:scale-[0.99] text-white font-bold text-xs shadow transition">
+            <svg class="w-6 h-6" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z"/>
+              <path stroke-linecap="round" stroke-linejoin="round" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z"/>
+            </svg>
+            <span>Take Picture</span>
+          </button>
+
+          <button type="button" onclick="document.getElementById('singleFileInput').click()" class="flex flex-col items-center justify-center gap-1.5 py-4 px-3 rounded-xl bg-slate-700 hover:bg-slate-600 active:scale-[0.99] text-slate-100 font-bold text-xs border border-slate-600 transition">
+            <svg class="w-6 h-6" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13"/>
+            </svg>
+            <span>Choose Receipt</span>
+          </button>
+        </div>
+
+        <!-- Inspection & OCR Verification Box (Supports 1 or Multiple Split Receipts) -->
+        <div id="crewInspectionBox" class="hidden bg-slate-900 border border-slate-700 rounded-xl p-3 space-y-3">
+          <div class="flex items-center justify-between gap-2">
+            <span id="ocrStatusBadge" class="px-2.5 py-0.5 rounded text-[11px] font-bold bg-indigo-500/20 text-indigo-300 truncate">Scanning...</span>
+            <div class="flex items-center gap-1.5 shrink-0">
+              <button type="button" onclick="retryCurrentReceiptOcr()" class="px-2 py-1 rounded-lg bg-indigo-600/30 hover:bg-indigo-600/50 text-indigo-200 font-semibold text-xs border border-indigo-500/40">Rescan</button>
+              <button type="button" onclick="resetCrewFormInputs()" class="px-2 py-1 rounded-lg bg-red-950/60 hover:bg-red-900/70 text-red-300 font-semibold text-xs border border-red-500/30">Retake</button>
+            </div>
+          </div>
+
+          <div id="crewStagedReceiptsContainer" class="space-y-4"></div>
+        </div>
+
+        <div class="space-y-3 pt-1">
+          <div>
+            <label class="block text-xs font-semibold text-slate-300 mb-1">Job Name</label>
+            <select id="crewJobSelect" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-3 text-xs text-white focus:outline-none focus:border-emerald-500"></select>
+          </div>
+
+          <div>
+            <label class="block text-xs font-semibold text-slate-300 mb-1">Cost Code</label>
+            <select id="crewCostCodeSelect" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-3 text-xs text-white focus:outline-none focus:border-emerald-500"></select>
+          </div>
+
+          <button type="button" id="submitReceiptBtn" onclick="submitCrewReceipt()" disabled class="w-full py-4 rounded-xl bg-slate-700 text-slate-400 font-bold text-sm transition cursor-not-allowed">
+            Take Picture to Submit
+          </button>
+        </div>
+      </div>
+
+      <!-- Crew History List -->
+      <div class="bg-slate-800 border border-slate-700 rounded-2xl p-4 space-y-2.5">
+        <div class="flex items-center justify-between">
+          <h2 class="text-xs font-bold uppercase tracking-wider text-slate-400">My Uploaded Receipts</h2>
+          <span class="text-[11px] text-slate-400">Tap item to inspect</span>
+        </div>
+        <div id="crewHistoryList" class="space-y-2"></div>
+      </div>
+    </section>
+
+    <!-- =================================================================== -->
+    <!-- ADMIN DEDICATED PAGES (Selected exclusively from the Side Menu)     -->
+    <!-- =================================================================== -->
+    <section id="viewAdmin" class="hidden space-y-4">
+
+      <!-- PAGE 1: STATEMENT RECONCILER -->
+      <div id="adminPage_reconcile" class="space-y-4">
+        <!-- Redesigned Clean KPI Summary Cards (Never overflows) -->
+        <div class="grid grid-cols-3 gap-2.5 sm:gap-3">
+          <div class="bg-slate-800 border border-slate-700 rounded-2xl p-3 sm:p-4 min-w-0 overflow-hidden flex flex-col justify-between">
+            <span class="text-[11px] sm:text-xs font-semibold text-slate-400 leading-tight">Employee<br/>Cards</span>
+            <div class="mt-2">
+              <p id="kpiTotalCards" class="text-xl sm:text-2xl font-extrabold text-white leading-none truncate">0</p>
+              <p class="text-[11px] text-slate-400 font-medium mt-1 truncate">Active Roster</p>
+            </div>
+          </div>
+
+          <div class="bg-slate-800 border border-emerald-500/40 rounded-2xl p-3 sm:p-4 min-w-0 overflow-hidden flex flex-col justify-between">
+            <span class="text-[11px] sm:text-xs font-semibold text-emerald-300 leading-tight">Matched /<br/>Complete</span>
+            <div class="mt-2">
+              <p id="kpiMatchedCount" class="text-xl sm:text-2xl font-extrabold text-emerald-400 leading-none truncate">0</p>
+              <p id="kpiMatchedDollars" class="text-[11px] sm:text-xs text-emerald-300 font-mono font-semibold mt-1 truncate">$0.00</p>
+            </div>
+          </div>
+
+          <div class="bg-slate-800 border border-red-500/40 rounded-2xl p-3 sm:p-4 min-w-0 overflow-hidden flex flex-col justify-between">
+            <span class="text-[11px] sm:text-xs font-semibold text-red-300 leading-tight">Missing /<br/>Incomplete</span>
+            <div class="mt-2">
+              <p id="kpiMissingCount" class="text-xl sm:text-2xl font-extrabold text-red-400 leading-none truncate">0</p>
+              <p id="kpiMissingDollars" class="text-[11px] sm:text-xs text-red-300 font-mono font-semibold mt-1 truncate">$0.00</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="flex flex-wrap items-center justify-between gap-2">
+          <div class="flex flex-wrap items-center gap-2">
+            <button id="filterBtn_all" onclick="setAdminFilter('all')" class="px-3 py-1.5 rounded-lg text-xs font-bold bg-indigo-600 text-white">All</button>
+            <button id="filterBtn_missing" onclick="setAdminFilter('missing')" class="px-3 py-1.5 rounded-lg text-xs font-bold bg-slate-800 text-red-300 border border-red-500/30">Missing / Incomplete</button>
+            <button id="filterBtn_matched" onclick="setAdminFilter('matched')" class="px-3 py-1.5 rounded-lg text-xs font-bold bg-slate-800 text-emerald-300 border border-emerald-500/30">Reconciled / Complete</button>
+          </div>
+
+          <button id="btnRescanAllReceipts" onclick="rescanAndReconcileAllReceipts()" class="px-3 py-1.5 rounded-lg text-xs font-bold bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 border border-emerald-500/40 transition">
+            ↻ Rescan & Re-Reconcile Photos
+          </button>
+        </div>
+
+        <div id="reconcileRescanProgress" class="hidden p-3 rounded-xl bg-indigo-950/80 border border-indigo-500/50 text-xs text-indigo-200 font-semibold"></div>
+
+        <div id="reconcileFeedContainer" class="space-y-2.5"></div>
+      </div>
+
+      <!-- PAGE 2: EMPLOYEES & CARDS -->
+      <div id="adminPage_employees" class="hidden max-w-xl mx-auto space-y-4">
+        <div class="bg-slate-800 border border-slate-700 rounded-2xl p-5 space-y-4">
+          <div>
+            <h2 class="text-base font-bold text-white">Employees, Cards & Access</h2>
+            <p class="text-xs text-slate-400 mt-0.5">Manage crew members, edit their 4-digit card numbers or login PINs, or toggle profiles to Inactive to revoke login access while keeping historical records.</p>
+          </div>
+
+          <div class="grid grid-cols-4 gap-2">
+            <input type="text" id="newEmpName" placeholder="Employee Name" class="col-span-2 bg-slate-900 border border-slate-700 rounded-xl px-3 py-2.5 text-xs text-white" />
+            <input type="text" maxlength="4" id="newCardLastFour" placeholder="Card Last 4" class="bg-slate-900 border border-slate-700 rounded-xl px-3 py-2.5 text-xs text-white font-mono" />
+            <input type="text" maxlength="4" id="newEmpPin" placeholder="PIN (1234)" class="bg-slate-900 border border-slate-700 rounded-xl px-3 py-2.5 text-xs text-white font-mono" />
+          </div>
+          <button onclick="addNewEmployeeCard()" class="w-full py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow transition">+ Add Employee Card</button>
+
+          <div class="border-t border-slate-700 pt-4 space-y-2">
+            <label class="block text-xs font-bold text-slate-300">Bulk Paste Roster (<code class="text-emerald-300">Name, 1234</code>)</label>
+            <textarea id="bulkPasteRoster" rows="3" placeholder="Jake Textor, 8255&#10;Terry Wismer, 0803" class="w-full bg-slate-900 border border-slate-700 rounded-xl p-2.5 text-xs text-white font-mono"></textarea>
+            <button onclick="bulkImportRoster()" class="w-full py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs shadow transition">Import Pasted List</button>
+          </div>
+
+          <div class="border-t border-slate-700 pt-4 space-y-2">
+            <div class="flex items-center justify-between">
+              <span class="text-xs font-bold text-slate-300">Employee Roster</span>
+              <span id="rosterSummaryBadge" class="text-[11px] text-slate-400 font-semibold"></span>
+            </div>
+            <div class="max-h-96 overflow-y-auto custom-scroll">
+              <table class="w-full text-left border-collapse text-xs">
+                <thead>
+                  <tr class="border-b border-slate-700 text-slate-400 uppercase text-[10px]">
+                    <th class="py-2 px-2">Employee & Status</th>
+                    <th class="py-2 px-1.5">Card #</th>
+                    <th class="py-2 px-1.5">PIN</th>
+                    <th class="py-2 px-2 text-right">Actions</th>
+                  </tr>
+                </thead>
+                <tbody id="rosterTableBody" class="divide-y divide-slate-700/60"></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- PAGE 3: JOBS & COST CODES -->
+      <div id="adminPage_jobs" class="hidden max-w-xl mx-auto space-y-4">
+        <div class="bg-slate-800 border border-slate-700 rounded-2xl p-5 space-y-5">
+          <div>
+            <h2 class="text-base font-bold text-white">Jobs & Cost Codes</h2>
+            <p class="text-xs text-slate-400 mt-0.5">Configure active job names and cost codes selectable by crew members.</p>
+          </div>
+
+          <div class="space-y-2.5">
+            <h3 class="text-xs font-bold uppercase tracking-wider text-slate-300">Job Names</h3>
+            <div class="flex gap-2">
+              <input type="text" id="newJobNameInput" placeholder="e.g. 26-104 Advancement Center" class="flex-1 bg-slate-900 border border-slate-700 rounded-xl px-3 py-2.5 text-xs text-white" />
+              <button onclick="addJobName()" class="px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs">+ Add</button>
+            </div>
+            <div id="adminJobsList" class="space-y-1.5 max-h-52 overflow-y-auto custom-scroll pt-1"></div>
+          </div>
+
+          <div class="border-t border-slate-700 pt-4 space-y-2.5">
+            <h3 class="text-xs font-bold uppercase tracking-wider text-slate-300">Cost Codes</h3>
+            <div class="flex gap-2">
+              <input type="text" id="newCostCodeInput" placeholder="e.g. 03-3000 Concrete" class="flex-1 bg-slate-900 border border-slate-700 rounded-xl px-3 py-2.5 text-xs text-white" />
+              <button onclick="addCostCode()" class="px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs">+ Add</button>
+            </div>
+            <div id="adminCostCodesList" class="space-y-1.5 max-h-52 overflow-y-auto custom-scroll pt-1"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- PAGE 4: UPLOAD STATEMENT CSV -->
+      <div id="adminPage_statement_csv" class="hidden max-w-md mx-auto">
+        <div class="bg-slate-800 border border-slate-700 rounded-2xl p-5 space-y-4">
+          <div>
+            <h2 class="text-base font-bold text-white">Upload Credit Card Statement (CSV)</h2>
+            <p class="text-xs text-slate-400 mt-1">Automatically detects header rows and maps Date, Card Last 4, Vendor, and Amount columns, then reconciles against any uploaded receipts.</p>
+          </div>
+          <input type="file" id="statementFileDrop" accept="*" multiple class="hidden" onchange="handleStatementImport(event)" />
+          <button type="button" onclick="document.getElementById('statementFileDrop').click()" class="w-full py-4 px-4 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs shadow transition">
+            Select Statement CSV File
+          </button>
+        </div>
+      </div>
+
+      <!-- PAGE 5: BATCH UPLOAD RECEIPTS -->
+      <div id="adminPage_batch_receipts" class="hidden max-w-md mx-auto">
+        <div class="bg-slate-800 border border-slate-700 rounded-2xl p-5 space-y-4">
+          <div>
+            <h2 class="text-base font-bold text-white">Batch Upload Receipts</h2>
+            <p class="text-xs text-slate-400 mt-1">Scans each receipt image completely blind using OCR (splitting multi-receipt photos automatically), records the exact Vendor, Date, Total, and Card Last 4 printed on the paper, and then compares those values against stored statement lines.</p>
+          </div>
+          <input type="file" id="adminMultiFilesInput" accept="image/*,application/pdf,.heic,.heif" multiple class="hidden" onchange="handleReceiptBatchImport(event)" />
+          <input type="file" id="adminFolderInput" webkitdirectory directory multiple class="hidden" onchange="handleReceiptBatchImport(event)" />
+
+          <div class="grid grid-cols-2 gap-3">
+            <button type="button" onclick="document.getElementById('adminMultiFilesInput').click()" class="py-4 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow transition">
+              Select Multiple Files
+            </button>
+            <button type="button" onclick="document.getElementById('adminFolderInput').click()" class="py-4 px-3 rounded-xl bg-slate-700 hover:bg-slate-600 text-white font-bold text-xs border border-slate-600 shadow transition">
+              Select Entire Folder
+            </button>
+          </div>
+          <div id="importBatchStatus" class="text-xs text-emerald-400 font-semibold leading-relaxed"></div>
+        </div>
+      </div>
+
+      <!-- PAGE 6: OCR API KEY SETUP -->
+      <div id="adminPage_ocr_key" class="hidden max-w-md mx-auto">
+        <div class="bg-slate-800 border border-slate-700 rounded-2xl p-5 space-y-4">
+          <div>
+            <h2 class="text-base font-bold text-white">Gemini OCR API Key Setup</h2>
+            <p class="text-xs text-slate-400 mt-1">Configure and verify the Gemini API key used for receipt OCR scanning.</p>
+          </div>
+          <div class="p-3 rounded-xl bg-slate-900 border border-slate-700 text-xs">
+            <span class="text-slate-400">Current Status: </span>
+            <code id="pageKeyStatusText" class="text-emerald-300 font-mono font-bold">--</code>
+          </div>
+          <div class="space-y-2">
+            <label class="block text-xs font-semibold text-slate-300">API Key (supports <code>AQ....</code> and <code>AIza...</code> formats)</label>
+            <input type="password" id="canvasKeyInput" placeholder="AQ.Ab8RN6... or AIzaSy..." class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2.5 text-xs text-white font-mono focus:outline-none focus:border-emerald-500" />
+            <button onclick="saveCanvasKey()" class="w-full py-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow transition">Save & Test OCR Key</button>
+          </div>
+          <div id="keyDiagnosticResult" class="text-xs"></div>
+        </div>
+      </div>
+
+      <!-- PAGE 7: EXPORT RECONCILED CSV -->
+      <div id="adminPage_export_csv" class="hidden max-w-md mx-auto">
+        <div class="bg-slate-800 border border-slate-700 rounded-2xl p-5 space-y-4">
+          <div>
+            <h2 class="text-base font-bold text-white">Export Reconciled CSV</h2>
+            <p class="text-xs text-slate-400 mt-1">Download all statement and receipt records formatted with Date, Card Last 4, Employee, Vendor, Amount, Job Name, and Cost Code.</p>
+          </div>
+          <div class="p-3.5 rounded-xl bg-slate-900 border border-slate-700 flex items-center justify-between text-xs">
+            <span class="text-slate-400">Total Records Ready for Export</span>
+            <span id="exportRecordCount" class="font-mono font-bold text-emerald-400 text-sm">0</span>
+          </div>
+          <button onclick="exportReconciledCsv()" class="w-full py-3.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow transition">
+            Download Reconciled CSV
+          </button>
+        </div>
+      </div>
+
+      <!-- PAGE 8: NETWORK / OFFLINE MODE -->
+      <div id="adminPage_network" class="hidden max-w-md mx-auto">
+        <div class="bg-slate-800 border border-slate-700 rounded-2xl p-5 space-y-4">
+          <div>
+            <h2 class="text-base font-bold text-white">Network & Offline Mode</h2>
+            <p class="text-xs text-slate-400 mt-1">Simulate field connectivity or manage offline queued receipts.</p>
+          </div>
+          <div class="p-3.5 rounded-xl bg-slate-900 border border-slate-700 flex items-center justify-between text-xs">
+            <span class="text-slate-300 font-semibold">Current Connection State</span>
+            <span id="networkPageBadge" class="px-2.5 py-1 rounded-lg font-bold text-emerald-300 bg-emerald-500/15 border border-emerald-500/30">Online</span>
+          </div>
+          <button onclick="toggleNetwork()" class="w-full py-3.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs shadow transition">
+            Toggle Online / Offline Status
+          </button>
+        </div>
+      </div>
+
+      <!-- PAGE 9: RESET APP DATA -->
+      <div id="adminPage_reset_data" class="hidden max-w-md mx-auto">
+        <div class="bg-slate-800 border border-red-500/40 rounded-2xl p-5 space-y-4">
+          <div>
+            <h2 class="text-base font-bold text-red-300">Reset All App Data</h2>
+            <p class="text-xs text-slate-300 mt-1">This will clear all uploaded receipts, statement lines, custom jobs, and cost codes, and restore the default 29-employee roster.</p>
+          </div>
+          <button onclick="confirmClearAllData()" class="w-full py-3.5 rounded-xl bg-red-600 hover:bg-red-500 text-white font-bold text-xs shadow transition">
+            Confirm & Reset Everything
+          </button>
+        </div>
+      </div>
+
+    </section>
+  </main>
+
+  <!-- MODAL FOR RECEIPT & OCR INSPECTION -->
+  <div id="appModal" class="fixed inset-0 z-50 hidden bg-black/85 backdrop-blur-sm flex items-center justify-center p-3">
+    <div class="bg-slate-900 border border-slate-700 rounded-2xl max-w-xl w-full p-4 shadow-2xl space-y-3 max-h-[92vh] flex flex-col">
+      <div class="flex items-center justify-between border-b border-slate-800 pb-2.5 shrink-0">
+        <h3 id="modalTitle" class="text-sm font-bold text-white">Inspection</h3>
+        <button onclick="closeModal()" class="text-slate-400 hover:text-white text-sm font-bold px-2.5 py-1 rounded-lg bg-slate-800">✕ Close</button>
+      </div>
+      <div id="modalBody" class="text-xs text-slate-300 space-y-3 overflow-y-auto custom-scroll pr-1"></div>
+    </div>
+  </div>
+
+  <!-- FULL-SCREEN INTERACTIVE PINCH/DRAG ZOOM IMAGE VIEWER -->
+  <div id="fullscreenZoomModal" class="fixed inset-0 z-[60] hidden bg-black/95 flex flex-col justify-between">
+    <div class="flex items-center justify-between px-4 py-3 bg-slate-900/90 border-b border-slate-800 z-10">
+      <div class="flex items-center gap-2">
+        <button onclick="adjustFullscreenZoom(-0.5)" class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-white font-bold text-xs border border-slate-700">−</button>
+        <span id="zoomLevelIndicator" class="text-xs font-mono font-bold text-emerald-400 min-w-[48px] text-center">100%</span>
+        <button onclick="adjustFullscreenZoom(0.5)" class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-white font-bold text-xs border border-slate-700">+</button>
+        <button onclick="resetFullscreenZoom()" class="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold text-xs border border-slate-700">Reset</button>
+      </div>
+      <button onclick="closeFullscreenZoom()" class="px-3.5 py-1.5 rounded-xl bg-red-600 hover:bg-red-500 text-white font-bold text-xs shadow">✕ Close</button>
+    </div>
+
+    <div id="zoomViewport" class="zoom-Viewport relative flex-1 overflow-hidden flex items-center justify-center">
+      <img id="fullscreenZoomImg" src="" alt="Full Screen Zoomable Receipt" draggable="false" class="max-w-none max-h-none select-none transition-transform duration-75 ease-out origin-center" />
+    </div>
+
+    <div class="px-4 py-2.5 bg-slate-900/90 border-t border-slate-800 text-center text-[11px] text-slate-400">
+      Pinch or use + / − buttons to zoom • Drag to pan • Double-tap to toggle zoom
+    </div>
+  </div>
+
+  <script>
+    // EMBEDDED GEMINI API KEY
+    const GEMINI_API_KEY = "AQ.Ab8RN6LQ7RdPcCSTLUehhf-MgrsJAuvnhMjlMIfxXJHhXDu0MA";
+
+    if (window.pdfjsLib) {
+      window.pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+    }
+
+    try {
+      const cachedKey = localStorage.getItem('fieldops_canvas_key');
+      if (cachedKey && cachedKey.startsWith('AQAb8')) {
+        localStorage.removeItem('fieldops_canvas_key');
+      }
+    } catch (e) {}
+
+    function getCleanApiKey() {
+      const stored = localStorage.getItem('fieldops_canvas_key');
+      const source = ((stored && stored.trim()) ? stored : GEMINI_API_KEY || '').trim();
+      const aizaMatch = source.match(/AIza[0-9A-Za-z_\-]{35}/);
+      if (aizaMatch) return aizaMatch[0];
+      const aqMatch = source.match(/AQ\.[0-9A-Za-z._\-]+/);
+      if (aqMatch) return aqMatch[0];
+      return source.replace(/[^a-zA-Z0-9._\-]/g, '');
+    }
+
+    let preferredEndpointIdx = 0;
+
+    async function callGeminiWithFallback(payload) {
+      const key = getCleanApiKey();
+      const baseAttempts = [];
+
+      if (key) {
+        baseAttempts.push({
+          url: `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${encodeURIComponent(key)}`,
+          headers: { 'Content-Type': 'application/json', 'x-goog-api-key': key }
+        });
+        baseAttempts.push({
+          url: `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${encodeURIComponent(key)}`,
+          headers: { 'Content-Type': 'application/json', 'x-goog-api-key': key }
+        });
+      }
+
+      baseAttempts.push({
+        url: `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=`,
+        headers: { 'Content-Type': 'application/json' }
+      });
+
+      // Reorder so the last known working endpoint is always called first
+      const orderedIndices = baseAttempts.map((_, idx) => idx);
+      if (preferredEndpointIdx > 0 && preferredEndpointIdx < orderedIndices.length) {
+        orderedIndices.splice(preferredEndpointIdx, 1);
+        orderedIndices.unshift(preferredEndpointIdx);
+      }
+
+      // Attach thinkingBudget: 0 for maximum OCR speed while keeping a fallback if unsupported
+      const fastPayload = {
+        ...payload,
+        generationConfig: {
+          ...(payload.generationConfig || {}),
+          thinkingConfig: { thinkingBudget: 0 }
+        }
+      };
+
+      let lastError = 'API request failed';
+      for (const idx of orderedIndices) {
+        const attempt = baseAttempts[idx];
+        try {
+          let resp = await fetch(attempt.url, {
+            method: 'POST',
+            headers: attempt.headers,
+            body: JSON.stringify(fastPayload)
+          });
+          let data = await resp.json();
+
+          // If model rejects thinkingConfig, retry immediately without it
+          if (!resp.ok && data?.error?.message?.toLowerCase().includes('thinking')) {
+            resp = await fetch(attempt.url, {
+              method: 'POST',
+              headers: attempt.headers,
+              body: JSON.stringify(payload)
+            });
+            data = await resp.json();
+          }
+
+          if (resp.ok && data?.candidates?.[0]?.content?.parts) {
+            preferredEndpointIdx = idx;
+            return { ok: true, data };
+          }
+          lastError = data?.error?.message || `API Error ${resp.status}`;
+        } catch (err) {
+          lastError = err.message;
+        }
+      }
+      return { ok: false, errorReason: lastError };
+    }
+
+    // =========================================================================
+    // FULL-SCREEN INTERACTIVE PINCH / PAN ZOOM VIEWER
+    // =========================================================================
+    let zoomState = {
+      scale: 1,
+      baseFitScale: 1,
+      panX: 0,
+      panY: 0,
+      isDragging: false,
+      startX: 0,
+      startY: 0,
+      initialPinchDist: null,
+      initialPinchScale: 1,
+      lastTapTime: 0
+    };
+
+    function openFullscreenZoom(imgSrc) {
+      if (!imgSrc) return;
+      const modal = document.getElementById('fullscreenZoomModal');
+      const img = document.getElementById('fullscreenZoomImg');
+      modal.classList.remove('hidden');
+
+      img.onload = () => {
+        const vp = document.getElementById('zoomViewport');
+        const vw = vp.clientWidth || window.innerWidth;
+        const vh = vp.clientHeight || (window.innerHeight - 100);
+        const nw = img.naturalWidth || 800;
+        const nh = img.naturalHeight || 800;
+        zoomState.baseFitScale = Math.min((vw * 0.96) / nw, (vh * 0.96) / nh, 1);
+        zoomState.scale = 1;
+        zoomState.panX = 0;
+        zoomState.panY = 0;
+        applyZoomTransform();
+      };
+      img.src = imgSrc;
+    }
+
+    function closeFullscreenZoom() {
+      document.getElementById('fullscreenZoomModal').classList.add('hidden');
+      document.getElementById('fullscreenZoomImg').src = '';
+    }
+
+    function adjustFullscreenZoom(delta) {
+      zoomState.scale = Math.min(Math.max(zoomState.scale + delta, 0.5), 6);
+      if (zoomState.scale <= 1) {
+        zoomState.panX = 0;
+        zoomState.panY = 0;
+      }
+      applyZoomTransform();
+    }
+
+    function resetFullscreenZoom() {
+      zoomState.scale = 1;
+      zoomState.panX = 0;
+      zoomState.panY = 0;
+      applyZoomTransform();
+    }
+
+    function applyZoomTransform() {
+      const img = document.getElementById('fullscreenZoomImg');
+      const effectiveScale = zoomState.baseFitScale * zoomState.scale;
+      img.style.transform = `translate(${zoomState.panX}px, ${zoomState.panY}px) scale(${effectiveScale})`;
+      document.getElementById('zoomLevelIndicator').textContent = `${Math.round(zoomState.scale * 100)}%`;
+    }
+
+    (function setupZoomListeners() {
+      const vp = document.getElementById('zoomViewport');
+      if (!vp) return;
+
+      vp.addEventListener('wheel', (e) => {
+        e.preventDefault();
+        const delta = e.deltaY < 0 ? 0.25 : -0.25;
+        adjustFullscreenZoom(delta);
+      }, { passive: false });
+
+      vp.addEventListener('mousedown', (e) => {
+        zoomState.isDragging = true;
+        zoomState.startX = e.clientX - zoomState.panX;
+        zoomState.startY = e.clientY - zoomState.panY;
+      });
+
+      window.addEventListener('mousemove', (e) => {
+        if (!zoomState.isDragging) return;
+        zoomState.panX = e.clientX - zoomState.startX;
+        zoomState.panY = e.clientY - zoomState.startY;
+        applyZoomTransform();
+      });
+
+      window.addEventListener('mouseup', () => {
+        zoomState.isDragging = false;
+      });
+
+      vp.addEventListener('touchstart', (e) => {
+        if (e.touches.length === 2) {
+          zoomState.isDragging = false;
+          const dx = e.touches[0].clientX - e.touches[1].clientX;
+          const dy = e.touches[0].clientY - e.touches[1].clientY;
+          zoomState.initialPinchDist = Math.hypot(dx, dy);
+          zoomState.initialPinchScale = zoomState.scale;
+        } else if (e.touches.length === 1) {
+          const now = Date.now();
+          if (now - zoomState.lastTapTime < 280) {
+            if (zoomState.scale > 1.2) {
+              resetFullscreenZoom();
+            } else {
+              zoomState.scale = 2.5;
+              applyZoomTransform();
+            }
+            zoomState.lastTapTime = 0;
+            return;
+          }
+          zoomState.lastTapTime = now;
+          zoomState.isDragging = true;
+          zoomState.startX = e.touches[0].clientX - zoomState.panX;
+          zoomState.startY = e.touches[0].clientY - zoomState.panY;
+        }
+      }, { passive: true });
+
+      vp.addEventListener('touchmove', (e) => {
+        if (e.touches.length === 2 && zoomState.initialPinchDist) {
+          e.preventDefault();
+          const dx = e.touches[0].clientX - e.touches[1].clientX;
+          const dy = e.touches[0].clientY - e.touches[1].clientY;
+          const dist = Math.hypot(dx, dy);
+          const ratio = dist / zoomState.initialPinchDist;
+          zoomState.scale = Math.min(Math.max(zoomState.initialPinchScale * ratio, 0.5), 6);
+          applyZoomTransform();
+        } else if (e.touches.length === 1 && zoomState.isDragging) {
+          e.preventDefault();
+          zoomState.panX = e.touches[0].clientX - zoomState.startX;
+          zoomState.panY = e.touches[0].clientY - zoomState.startY;
+          applyZoomTransform();
+        }
+      }, { passive: false });
+
+      vp.addEventListener('touchend', () => {
+        zoomState.isDragging = false;
+        zoomState.initialPinchDist = null;
+      });
+    })();
+
+    function renderOcrKeyPage() {
+      const current = getCleanApiKey();
+      const masked = current ? `${current.slice(0, 7)}...${current.slice(-4)} (${current.length} chars)` : 'Using Built-in Runtime';
+      const statusEl = document.getElementById('pageKeyStatusText');
+      if (statusEl) statusEl.textContent = masked;
+      const inputEl = document.getElementById('canvasKeyInput');
+      if (inputEl) inputEl.value = current;
+    }
+
+    function saveCanvasKey() {
+      const val = document.getElementById('canvasKeyInput').value.trim();
+      localStorage.setItem('fieldops_canvas_key', val);
+      updateTopBarIndicators();
+      renderOcrKeyPage();
+      testActiveKeyConnection();
+    }
+
+    async function testActiveKeyConnection() {
+      const out = document.getElementById('keyDiagnosticResult');
+      if (!out) return;
+      out.innerHTML = `<p class="text-indigo-300 animate-pulse">Verifying OCR connection with Gemini API...</p>`;
+      const res = await callGeminiWithFallback({
+        contents: [{ role: 'user', parts: [{ text: 'Return JSON: {"ok":true}' }] }]
+      });
+      out.innerHTML = res.ok
+        ? `<div class="p-3 rounded-xl bg-emerald-950 border border-emerald-500 text-emerald-200 font-semibold">✓ OCR Connection Verified & Ready!</div>`
+        : `<div class="p-3 rounded-xl bg-red-950 border border-red-500 text-red-200">Error: ${res.errorReason}</div>`;
+    }
+
+    // STORAGE ENGINE
+    const DB_NAME = 'FieldOps_Canvas_DB_v2';
+    const STORE_NAME = 'app_state';
+
+    const DEFAULT_ROSTER = [
+      { name: "Jake Textor", last4: "8255", pin: "1234" },
+      { name: "Terry Wismer", last4: "0803", pin: "1234" },
+      { name: "Mike Owensby", last4: "6319", pin: "1234" },
+      { name: "Phillip Textor", last4: "1527", pin: "1234" },
+      { name: "Keith Pratt Sr.", last4: "1720", pin: "1234" },
+      { name: "Josh Swadley", last4: "2183", pin: "1234" },
+      { name: "David Guerra", last4: "3172", pin: "1234" },
+      { name: "Chris Matthews", last4: "0830", pin: "1234" },
+      { name: "Jason Durnbaugh", last4: "0444", pin: "1234" },
+      { name: "Lane Doing", last4: "2681", pin: "1234" },
+      { name: "Eddie Varner", last4: "0762", pin: "1234" },
+      { name: "Ronny Sawyers", last4: "5476", pin: "1234" },
+      { name: "Alfonso Martinez", last4: "6123", pin: "1234" },
+      { name: "Duane Steward", last4: "4190", pin: "1234" },
+      { name: "Jathan Compton", last4: "4540", pin: "1234" },
+      { name: "Mike Phillips", last4: "8602", pin: "1234" },
+      { name: "Grant Gilbert", last4: "3399", pin: "1234" },
+      { name: "Austin Textor", last4: "8743", pin: "1234" },
+      { name: "Brandon Talty", last4: "5474", pin: "1234" },
+      { name: "Wayne Compton", last4: "6927", pin: "1234" },
+      { name: "Gary Salyers", last4: "1111", pin: "1234" },
+      { name: "Richard Choate", last4: "2862", pin: "1234" },
+      { name: "Mark Elbert", last4: "6375", pin: "1234" },
+      { name: "Jerry Thomas", last4: "6219", pin: "1234" },
+      { name: "Zeke Beltran", last4: "0926", pin: "1234" },
+      { name: "Ray Wright", last4: "3149", pin: "1234" },
+      { name: "Shane Salyers", last4: "6953", pin: "1234" },
+      { name: "Patrick Davis", last4: "5994", pin: "1234" },
+      { name: "Bill Textor", last4: "6229", pin: "1234" }
+    ];
+
+    const ADMIN_PAGES = [
+      'reconcile',
+      'employees',
+      'jobs',
+      'statement_csv',
+      'batch_receipts',
+      'ocr_key',
+      'export_csv',
+      'network',
+      'reset_data'
+    ];
+
+    const ADMIN_PAGE_TITLES = {
+      reconcile: 'Statement Reconciler',
+      employees: 'Employees & Cards',
+      jobs: 'Jobs & Cost Codes',
+      statement_csv: 'Upload Statement CSV',
+      batch_receipts: 'Batch Upload Receipts',
+      ocr_key: 'OCR API Key Setup',
+      export_csv: 'Export Reconciled CSV',
+      network: 'Network / Offline Mode',
+      reset_data: 'Reset App Data'
+    };
+
+    function getSeededState() {
+      const employees = [];
+      const cards = [];
+      DEFAULT_ROSTER.forEach((item, idx) => {
+        const empId = `emp-seed-${idx + 1}`;
+        employees.push({ id: empId, full_name: item.name, pin: item.pin, active: true });
+        cards.push({ id: `card-seed-${idx + 1}`, last_four: item.last4, assigned_employee_id: empId });
+      });
+      return { jobs: [], costCodes: [], employees, cards, statementLines: [], offlineQueue: [] };
+    }
+
+    function getEmptyState() {
+      return getSeededState();
+    }
+
+    let state = getEmptyState();
+    let currentRole = 'crew';
+    let currentAdminPage = 'reconcile';
+    let adminFilter = 'all';
+    let activeFeature = 'receipts';
+    let isOnline = true;
+    let isAuthenticated = false;
+    let activeCrewEmployeeId = null;
+    let stagedReceiptsList = [];
+    let lastProcessedMedia = null;
+    let toastTimer = null;
+
+    function ensureRosterSeeded() {
+      if (!state.employees || state.employees.length === 0) {
+        const seeded = getSeededState();
+        state.employees = seeded.employees;
+        state.cards = seeded.cards;
+      } else {
+        state.employees.forEach(e => {
+          if (!e.pin) e.pin = '1234';
+          if (e.active === undefined) e.active = true;
+        });
+      }
+    }
+
+    function populateLoginDropdown() {
+      const sel = document.getElementById('loginUserSelect');
+      if (!sel) return;
+      const activeEmployees = state.employees.filter(e => e.active !== false);
+      const crewOptions = activeEmployees.map(e => `<option value="${e.id}">${e.full_name}</option>`).join('');
+      sel.innerHTML = `
+        <option value="" disabled selected>-- Choose Your Name --</option>
+        ${crewOptions}
+        <option value="ADMIN">Administrator (Admin View)</option>
+      `;
+    }
+
+    function updateRoleMenuVisibility(role) {
+      const isAdmin = role === 'admin';
+      document.getElementById('drawerAdminFutureFeatures')?.classList.toggle('hidden', !isAdmin);
+      document.getElementById('drawerAdminSection')?.classList.toggle('hidden', !isAdmin);
+      document.getElementById('drawerOptionsSection')?.classList.toggle('hidden', !isAdmin);
+      document.getElementById('drawerResetDataBtn')?.classList.toggle('hidden', !isAdmin);
+    }
+
+    function handleLoginSubmit(event) {
+      event.preventDefault();
+      const userId = document.getElementById('loginUserSelect').value;
+      const pin = document.getElementById('loginPinInput').value.trim();
+      const errBox = document.getElementById('loginErrorMsg');
+
+      if (!userId) return;
+
+      if (userId === 'ADMIN') {
+        if (pin !== '1234') {
+          errBox.classList.remove('hidden');
+          return;
+        }
+        errBox.classList.add('hidden');
+        isAuthenticated = true;
+        document.getElementById('loginPinInput').value = '';
+        document.getElementById('loginScreen').classList.add('hidden');
+        document.getElementById('topBarUserName').textContent = 'Administrator';
+        document.getElementById('drawerUserName').textContent = 'Administrator';
+        document.getElementById('drawerUserRole').textContent = 'Admin Portal';
+        switchRole('admin');
+        openAdminPage('reconcile');
+        return;
+      }
+
+      const emp = state.employees.find(e => e.id === userId);
+      if (!emp || emp.active === false) {
+        errBox.textContent = 'This user profile is currently inactive. Contact an Administrator.';
+        errBox.classList.remove('hidden');
+        return;
+      }
+      const expectedPin = (emp && emp.pin) ? emp.pin : '1234';
+      if (pin !== expectedPin) {
+        errBox.textContent = 'Invalid PIN. Please try again.';
+        errBox.classList.remove('hidden');
+        return;
+      }
+
+      errBox.classList.add('hidden');
+      isAuthenticated = true;
+      activeCrewEmployeeId = emp.id;
+      document.getElementById('loginPinInput').value = '';
+      document.getElementById('loginScreen').classList.add('hidden');
+      document.getElementById('topBarUserName').textContent = emp.full_name;
+      document.getElementById('drawerUserName').textContent = emp.full_name;
+      document.getElementById('drawerUserRole').textContent = 'Crew Member';
+      switchRole('crew');
+    }
+
+    function logoutUser() {
+      isAuthenticated = false;
+      try { closeSideMenu(); } catch (e) {}
+      try { closeModal(); } catch (e) {}
+      try { closeFullscreenZoom(); } catch (e) {}
+      try { resetCrewFormInputs(); } catch (e) {}
+      populateLoginDropdown();
+      const errMsg = document.getElementById('loginErrorMsg');
+      if (errMsg) errMsg.classList.add('hidden');
+      const pinInput = document.getElementById('loginPinInput');
+      if (pinInput) pinInput.value = '';
+      const loginScr = document.getElementById('loginScreen');
+      if (loginScr) loginScr.classList.remove('hidden');
+    }
+
+    function openSideMenu() {
+      document.getElementById('sideMenuBackdrop').classList.remove('hidden');
+      document.getElementById('sideMenuDrawer').classList.remove('-translate-x-full');
+    }
+
+    function closeSideMenu() {
+      document.getElementById('sideMenuBackdrop').classList.add('hidden');
+      document.getElementById('sideMenuDrawer').classList.add('-translate-x-full');
+    }
+
+    function selectMenuFeature(feature) {
+      if (currentRole !== 'admin' && feature !== 'receipts') return;
+      activeFeature = feature;
+      closeSideMenu();
+
+      const featButtons = {
+        receipts: document.getElementById('menuFeatReceipts'),
+        forms: document.getElementById('menuFeatForms'),
+        timecards: document.getElementById('menuFeatTimecards'),
+        payroll: document.getElementById('menuFeatPayroll')
+      };
+
+      Object.entries(featButtons).forEach(([key, btn]) => {
+        if (!btn) return;
+        btn.className = key === feature
+          ? 'w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-bold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 transition'
+          : 'w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-semibold text-slate-300 hover:bg-slate-800 hover:text-white transition';
+      });
+
+      const otherView = document.getElementById('viewOtherModule');
+      if (feature === 'receipts') {
+        otherView.classList.add('hidden');
+        switchRole(currentRole);
+      } else {
+        document.getElementById('viewCrew').classList.add('hidden');
+        document.getElementById('viewAdmin').classList.add('hidden');
+        otherView.classList.remove('hidden');
+        const titles = {
+          forms: 'Field Forms & Safety Checklists',
+          timecards: 'Crew Time Cards',
+          payroll: 'Payroll Summary & Export'
+        };
+        document.getElementById('otherModuleTitle').textContent = titles[feature] || 'Feature';
+        document.getElementById('topBarPageTitle').textContent = titles[feature] || 'Feature';
+      }
+    }
+
+    function openAdminPage(pageKey) {
+      if (currentRole !== 'admin') return;
+      activeFeature = 'receipts';
+      currentAdminPage = pageKey;
+      closeSideMenu();
+
+      document.getElementById('viewOtherModule').classList.add('hidden');
+      document.getElementById('viewCrew').classList.add('hidden');
+      document.getElementById('viewAdmin').classList.remove('hidden');
+
+      ADMIN_PAGES.forEach(k => {
+        const el = document.getElementById(`adminPage_${k}`);
+        if (el) el.classList.toggle('hidden', k !== pageKey);
+
+        const navBtn = document.getElementById(`navAdmin_${k}`);
+        if (navBtn) {
+          navBtn.className = k === pageKey
+            ? 'w-full flex items-center justify-between gap-2.5 px-3 py-2.5 rounded-xl text-xs font-bold bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 transition'
+            : 'w-full flex items-center justify-between gap-2.5 px-3 py-2.5 rounded-xl text-xs font-semibold text-slate-300 hover:bg-slate-800 hover:text-white transition';
+        }
+      });
+
+      document.getElementById('topBarPageTitle').textContent = ADMIN_PAGE_TITLES[pageKey] || 'Admin';
+
+      if (pageKey === 'ocr_key') {
+        renderOcrKeyPage();
+      }
+      renderAdminView();
+    }
+
+    function openDatabase() {
+      return new Promise((resolve, reject) => {
+        const req = indexedDB.open(DB_NAME, 1);
+        req.onupgradeneeded = e => {
+          const db = e.target.result;
+          if (!db.objectStoreNames.contains(STORE_NAME)) db.createObjectStore(STORE_NAME);
+        };
+        req.onsuccess = e => resolve(e.target.result);
+        req.onerror = e => reject(e.target.error);
+      });
+    }
+
+    async function loadStateFromDB() {
+      try {
+        const db = await openDatabase();
+        return new Promise(resolve => {
+          const req = db.transaction(STORE_NAME, 'readonly').objectStore(STORE_NAME).get('main');
+          req.onsuccess = () => resolve(req.result || getEmptyState());
+          req.onerror = () => resolve(getEmptyState());
+        });
+      } catch (e) { return getEmptyState(); }
+    }
+
+    async function saveState() {
+      updateTopBarIndicators();
+      try {
+        const db = await openDatabase();
+        db.transaction(STORE_NAME, 'readwrite').objectStore(STORE_NAME).put(state, 'main');
+      } catch (e) {}
+    }
+
+    async function confirmClearAllData() {
+      if (currentRole !== 'admin') return;
+      state = getEmptyState();
+      activeCrewEmployeeId = state.employees[0]?.id || null;
+      stagedReceiptsList = [];
+      lastProcessedMedia = null;
+      await saveState();
+      populateLoginDropdown();
+      openAdminPage('reconcile');
+      showSimpleToast('App Data Reset', true);
+    }
+
+    // =========================================================================
+    // HIGH-RES IMAGE PROCESSOR + MULTI-RECEIPT DETECTOR & SPLITTER
+    // =========================================================================
+    function scaleCanvasMax(sourceEl, maxDim) {
+      let w = sourceEl.width || sourceEl.naturalWidth;
+      let h = sourceEl.height || sourceEl.naturalHeight;
+      if (w > maxDim || h > maxDim) {
+        if (w > h) { h = Math.round((h * maxDim) / w); w = maxDim; }
+        else { w = Math.round((w * maxDim) / h); h = maxDim; }
+      }
+      const c = document.createElement('canvas');
+      c.width = w; c.height = h;
+      c.getContext('2d').drawImage(sourceEl, 0, 0, w, h);
+      return c;
+    }
+
+    async function processFileToDataUrl(file) {
+      const lowerName = (file.name || '').toLowerCase();
+
+      if ((file.type === 'application/pdf' || lowerName.endsWith('.pdf')) && window.pdfjsLib) {
+        try {
+          const arrayBuffer = await file.arrayBuffer();
+          const pdf = await window.pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+          const page = await pdf.getPage(1);
+          const viewport = page.getViewport({ scale: 2.0 });
+          const canvas = document.createElement('canvas');
+          canvas.width = viewport.width; canvas.height = viewport.height;
+          await page.render({ canvasContext: canvas.getContext('2d'), viewport }).promise;
+          return {
+            displayDataUrl: canvas.toDataURL('image/jpeg', 0.92),
+            ocrBase64: scaleCanvasMax(canvas, 1600).toDataURL('image/jpeg', 0.82).split(',')[1],
+            mimeType: 'image/jpeg'
+          };
+        } catch (e) {}
+      }
+
+      let workingBlob = file;
+      if ((lowerName.endsWith('.heic') || lowerName.endsWith('.heif')) && window.heic2any) {
+        try {
+          const converted = await window.heic2any({ blob: file, toType: 'image/jpeg', quality: 0.90 });
+          workingBlob = Array.isArray(converted) ? converted[0] : converted;
+        } catch (e) {}
+      }
+
+      return new Promise(resolve => {
+        const reader = new FileReader();
+        reader.onload = e => {
+          const img = new Image();
+          img.onload = () => {
+            resolve({
+              displayDataUrl: scaleCanvasMax(img, 2600).toDataURL('image/jpeg', 0.92),
+              ocrBase64: scaleCanvasMax(img, 1600).toDataURL('image/jpeg', 0.82).split(',')[1],
+              mimeType: 'image/jpeg'
+            });
+          };
+          img.onerror = () => {
+            const raw = e.target.result || '';
+            resolve({ displayDataUrl: raw, ocrBase64: raw.split(',')[1] || '', mimeType: 'image/jpeg' });
+          };
+          img.src = e.target.result;
+        };
+        reader.readAsDataURL(workingBlob);
+      });
+    }
+
+    function cropImageFromSourceElement(img, box) {
+      const W = img.naturalWidth || img.width;
+      const H = img.naturalHeight || img.height;
+
+      let [ymin, xmin, ymax, xmax] = box;
+      const padY = 15;
+      const padX = 12;
+      ymin = Math.max(0, ymin - padY);
+      xmin = Math.max(0, xmin - padX);
+      ymax = Math.min(1000, ymax + padY);
+      xmax = Math.min(1000, xmax + padX);
+
+      const sx = Math.floor((xmin / 1000) * W);
+      const sy = Math.floor((ymin / 1000) * H);
+      const sw = Math.max(32, Math.ceil(((xmax - xmin) / 1000) * W));
+      const sh = Math.max(32, Math.ceil(((ymax - ymin) / 1000) * H));
+
+      const canvas = document.createElement('canvas');
+      canvas.width = sw;
+      canvas.height = sh;
+      canvas.getContext('2d').drawImage(img, sx, sy, sw, sh, 0, 0, sw, sh);
+
+      return {
+        displayDataUrl: canvas.toDataURL('image/jpeg', 0.92),
+        ocrBase64: scaleCanvasMax(canvas, 1400).toDataURL('image/jpeg', 0.82).split(',')[1],
+        mimeType: 'image/jpeg'
+      };
+    }
+
+    function loadImageElement(dataUrl) {
+      return new Promise((resolve, reject) => {
+        const img = new Image();
+        img.onload = () => resolve(img);
+        img.onerror = reject;
+        img.src = dataUrl;
+      });
+    }
+
+    // =========================================================================
+    // SINGLE-PASS MULTI-RECEIPT DETECTOR + PARALLEL BLIND OCR ENGINE
+    // Detects 1 or N receipts AND extracts OCR fields in a single fast call,
+    // then runs parallel high-res refinement only on crops that need it.
+    // =========================================================================
+    async function detectAndScanReceiptsFast(processedMedia, onStatusUpdate) {
+      const unifiedPrompt = `Inspect this image carefully. Locate every separate physical paper receipt or invoice in the photo (whether 1 single receipt or multiple receipts laid next to each other) and read the printed text on each one as if you have zero prior knowledge.
+
+Return ONLY a JSON object with this exact structure:
+{
+  "receipts": [
+    {
+      "box_2d": [ymin, xmin, ymax, xmax],
+      "vendor": "Merchant/Store name printed at the top header/logo, or null",
+      "amount": 0.00,
+      "date": "YYYY-MM-DD or null",
+      "last_four": "4-digit payment card number or null"
+    }
+  ]
+}
+
+STRICT RULES:
+- Sort "receipts" from left to right (by xmin ascending).
+- Coordinates [ymin, xmin, ymax, xmax] are integers normalized 0 to 1000 around each separate receipt paper.
+- "vendor": Primary store/business name at the top header (e.g. "MAVERIK", "MENARDS", "ROST FORM & SUPPLY, LLC", "PHILLIPS 66").
+- "amount": Final total charged ("TOTAL", "TOTAL PURCHASES", "AMOUNT TENDERED", "BALANCE DUE"). Do NOT use subtotal or tax.
+- "date": Transaction date formatted as YYYY-MM-DD, or null.
+- "last_four": ONLY the 4-digit payment card number next to VISA/MC/AMEX/DISCOVER/CREDIT/DEBIT/XXXX. Never use store numbers, zip codes, or invoice numbers.`;
+
+      try {
+        const res = await callGeminiWithFallback({
+          contents: [{
+            role: 'user',
+            parts: [
+              { text: unifiedPrompt },
+              { inlineData: { mimeType: processedMedia.mimeType, data: processedMedia.ocrBase64 } }
+            ]
+          }],
+          generationConfig: { temperature: 0, responseMimeType: 'application/json' }
+        });
+
+        if (!res.ok) {
+          return [{
+            displayDataUrl: processedMedia.displayDataUrl,
+            vendor: null,
+            amount: null,
+            post_date: null,
+            last_four: null,
+            errorReason: res.errorReason
+          }];
+        }
+
+        const rawText = (res.data?.candidates?.[0]?.content?.parts || []).filter(p => !p.thought && p.text).map(p => p.text).join('\n');
+        const cleaned = rawText.replace(/```json|```/gi, '').trim();
+        const parsed = JSON.parse(cleaned.match(/\{[\s\S]*\}/)?.[0] || cleaned);
+
+        const rawReceipts = Array.isArray(parsed.receipts) ? parsed.receipts : [];
+
+        // Case 1: Single receipt in the photo — already scanned in 1 pass!
+        if (rawReceipts.length <= 1) {
+          const r = rawReceipts[0] || parsed;
+          const vendor = (typeof r.vendor === 'string' && r.vendor.trim() && r.vendor.trim().toLowerCase() !== 'null')
+            ? r.vendor.trim().toUpperCase() : null;
+          return [{
+            displayDataUrl: processedMedia.displayDataUrl,
+            vendor,
+            amount: normalizeOcrAmount(r.amount),
+            post_date: normalizeOcrDate(r.date),
+            last_four: normalizeOcrLastFour(r.last_four),
+            errorReason: null
+          }];
+        }
+
+        // Case 2: Multiple receipts in the photo — crop all of them locally in memory
+        rawReceipts.sort((a, b) => ((a.box_2d?.[1] || 0) - (b.box_2d?.[1] || 0)));
+        const sourceImg = await loadImageElement(processedMedia.displayDataUrl);
+
+        const croppedItems = rawReceipts.map((r) => {
+          const box = Array.isArray(r.box_2d) && r.box_2d.length === 4 ? r.box_2d : [0, 0, 1000, 1000];
+          const croppedMedia = cropImageFromSourceElement(sourceImg, box);
+          const vendor = (typeof r.vendor === 'string' && r.vendor.trim() && r.vendor.trim().toLowerCase() !== 'null')
+            ? r.vendor.trim().toUpperCase() : null;
+          return {
+            croppedMedia,
+            displayDataUrl: croppedMedia.displayDataUrl,
+            vendor,
+            amount: normalizeOcrAmount(r.amount),
+            post_date: normalizeOcrDate(r.date),
+            last_four: normalizeOcrLastFour(r.last_four),
+            errorReason: null
+          };
+        });
+
+        // For any cropped receipt that missed fields in the wide shot, refine in PARALLEL using Promise.all
+        const needsRefinement = croppedItems.some(item => !item.vendor || item.amount === null || !item.post_date || !item.last_four);
+        if (needsRefinement) {
+          if (onStatusUpdate) {
+            onStatusUpdate(`Parallel scanning ${croppedItems.length} split receipts...`);
+          }
+          await Promise.all(croppedItems.map(async (item) => {
+            if (!item.vendor || item.amount === null || !item.post_date || !item.last_four) {
+              const refined = await extractReceiptOcrStrict(item.croppedMedia);
+              item.vendor = refined.vendor || item.vendor;
+              item.amount = refined.amount !== null ? refined.amount : item.amount;
+              item.post_date = refined.post_date || item.post_date;
+              item.last_four = refined.last_four || item.last_four;
+              item.errorReason = refined.errorReason;
+            }
+          }));
+        }
+
+        return croppedItems;
+      } catch (e) {
+        const fallbackOcr = await extractReceiptOcrStrict(processedMedia);
+        return [{
+          displayDataUrl: processedMedia.displayDataUrl,
+          ...fallbackOcr
+        }];
+      }
+    }
+
+    function normalizeOcrDate(rawDate) {
+      if (!rawDate || typeof rawDate !== 'string') return null;
+      const t = rawDate.trim();
+      if (/^\d{4}-\d{2}-\d{2}$/.test(t)) return t;
+      let m = t.match(/^(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})$/);
+      if (m) return `${m[1]}-${m[2].padStart(2, '0')}-${m[3].padStart(2, '0')}`;
+      m = t.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})$/);
+      if (m) {
+        let yr = m[3].length === 2 ? (parseInt(m[3], 10) > 50 ? '19' : '20') + m[3] : m[3];
+        return `${yr}-${m[1].padStart(2, '0')}-${m[2].padStart(2, '0')}`;
+      }
+      return null;
+    }
+
+    function normalizeOcrAmount(raw) {
+      if (raw === null || raw === undefined || raw === '') return null;
+      const val = parseFloat(String(raw).replace(/[^0-9.]/g, ''));
+      return (!isNaN(val) && val > 0) ? val : null;
+    }
+
+    function normalizeOcrLastFour(raw) {
+      if (!raw || raw === 'null') return null;
+      const d = String(raw).replace(/\D/g, '');
+      return d.length === 4 ? d : (d.length > 4 ? d.slice(-4) : null);
+    }
+
+    // =========================================================================
+    // BLIND, PURE IMAGE OCR ENGINE (Zero Pre-Known Data Used During Scanning)
+    // =========================================================================
+    async function extractReceiptOcrStrict(processedMedia) {
+      const promptText = `You are a high-accuracy receipt and invoice OCR reader. Read ONLY the text visibly printed on this receipt image as if you have zero prior knowledge. Do NOT guess or fabricate any values.
+
+Extract the following fields from the receipt image and return ONLY a JSON object with this exact structure:
+{
+  "vendor": "Merchant/Store name printed at the top header/logo of the receipt, or null if unreadable",
+  "amount": 0.00,
+  "date": "YYYY-MM-DD or null",
+  "last_four": "4-digit payment card number or null"
+}
+
+STRICT EXTRACTION RULES:
+1. "vendor": Read the primary business/store name at the top of the receipt (for example: "MAVERIK", "MENARDS", "ROST FORM & SUPPLY, LLC", "PHILLIPS 66", "CENEX", "CASEY'S", "HOME DEPOT"). Do not include the street address.
+2. "amount": Read the final total amount charged for the transaction (look for "TOTAL", "TOTAL PURCHASES", "AMOUNT TENDERED", "BALANCE DUE", "GRAND TOTAL"). Do NOT use "SUB-TOTAL" or "SALES TAX" if a final total is printed. Return as a number (e.g., 7.38) or null if unreadable.
+3. "date": Read the transaction/invoice date printed on the receipt (for example "07-31-2026" -> "2026-07-31") and convert it to YYYY-MM-DD format. Return null if no date is readable.
+4. "last_four": Look ONLY for a payment card number (such as next to "VISA", "MASTERCARD", "AMEX", "DISCOVER", "CREDIT", "DEBIT", "CARD #", "ACCT", or masked digits like "XXXXXXXXXXXX2862" or "************2862").
+   - CRITICAL: Do NOT confuse Store Numbers (e.g. "#5087"), Invoice Numbers, Auth Codes (e.g. "AUTH # 06184G"), AID numbers, Phone Numbers, or 5-digit ZIP codes (e.g. "65806") with the card's last 4 digits. If no payment card number is printed on the document, return null.`;
+
+      try {
+        const res = await callGeminiWithFallback({
+          contents: [{
+            role: 'user',
+            parts: [
+              { text: promptText },
+              { inlineData: { mimeType: processedMedia.mimeType, data: processedMedia.ocrBase64 } }
+            ]
+          }],
+          generationConfig: { temperature: 0, responseMimeType: 'application/json' }
+        });
+
+        if (!res.ok) {
+          return { vendor: null, amount: null, post_date: null, last_four: null, errorReason: res.errorReason };
+        }
+
+        const rawText = (res.data?.candidates?.[0]?.content?.parts || []).filter(p => !p.thought && p.text).map(p => p.text).join('\n');
+        const cleaned = rawText.replace(/```json|```/gi, '').trim();
+        const parsed = JSON.parse(cleaned.match(/\{[\s\S]*\}/)?.[0] || cleaned);
+
+        const vendor = (typeof parsed.vendor === 'string' && parsed.vendor.trim() && parsed.vendor.trim().toLowerCase() !== 'null')
+          ? parsed.vendor.trim().toUpperCase() : null;
+
+        return {
+          vendor,
+          amount: normalizeOcrAmount(parsed.amount),
+          post_date: normalizeOcrDate(parsed.date),
+          last_four: normalizeOcrLastFour(parsed.last_four),
+          errorReason: null
+        };
+      } catch (err) {
+        return { vendor: null, amount: null, post_date: null, last_four: null, errorReason: `OCR Error: ${err.message}` };
+      }
+    }
+
+    // =========================================================================
+    // STRICT POST-OCR RECONCILIATION ENGINE
+    // Compares pure OCR-extracted values against stored Statement Lines
+    // =========================================================================
+    function computeVendorSimilarity(v1, v2) {
+      if (!v1 || !v2) return 0;
+      const clean = s => s.toUpperCase().replace(/[^A-Z0-9\s]/g, ' ').split(/\s+/).filter(w => w.length >= 3 && !['INC', 'LLC', 'CORP', 'STORE', 'THE', 'AND'].includes(w));
+      const words1 = clean(v1);
+      const words2 = clean(v2);
+      if (!words1.length || !words2.length) return 0;
+
+      const full1 = v1.toUpperCase().replace(/[^A-Z0-9]/g, '');
+      const full2 = v2.toUpperCase().replace(/[^A-Z0-9]/g, '');
+      if (full1.includes(full2) || full2.includes(full1)) return 1.0;
+
+      let matches = 0;
+      for (const w1 of words1) {
+        if (words2.some(w2 => w2.includes(w1) || w1.includes(w2))) {
+          matches++;
+        }
+      }
+      return matches / Math.max(1, Math.min(words1.length, words2.length));
+    }
+
+    function computeDaysApart(dateStr1, dateStr2) {
+      if (!dateStr1 || !dateStr2) return null;
+      const d1 = new Date(dateStr1 + 'T00:00:00');
+      const d2 = new Date(dateStr2 + 'T00:00:00');
+      if (isNaN(d1.getTime()) || isNaN(d2.getTime())) return null;
+      return Math.round(Math.abs(d2.getTime() - d1.getTime()) / (1000 * 60 * 60 * 24));
+    }
+
+    function findBestStatementMatch(ocrPayload) {
+      if (ocrPayload.amount === null || ocrPayload.amount === undefined) return null;
+
+      // Candidate statement lines are genuine bank statement rows that don't yet have a receipt attached
+      const candidates = state.statementLines.filter(s => s.is_statement_row !== false && !s.receipt_image);
+
+      let bestCandidate = null;
+      let bestScore = -1;
+
+      for (const stmt of candidates) {
+        if (stmt.amount === null || stmt.amount === undefined) continue;
+
+        // 1. Strict Dollar Amount Check: Must match within $0.02 (never match $7.38 to $5.39!)
+        const amountDiff = Math.abs(Number(stmt.amount) - Number(ocrPayload.amount));
+        if (amountDiff > 0.02) continue;
+
+        // 2. Card Last 4 Check:
+        // If OCR read a card number AND statement has a card number, they must match!
+        // (Unless vendor AND date and exact amount all match, in case OCR misread 1 digit of the card)
+        const cardExactMatch = Boolean(ocrPayload.last_four && stmt.last_four && ocrPayload.last_four === stmt.last_four);
+        const vendorSim = computeVendorSimilarity(ocrPayload.vendor, stmt.vendor);
+        const daysApart = computeDaysApart(ocrPayload.post_date, stmt.post_date);
+
+        if (ocrPayload.last_four && stmt.last_four && !cardExactMatch) {
+          // Only allow overriding a misread card digit if exact amount + strong vendor match + close date
+          if (!(vendorSim >= 0.75 && daysApart !== null && daysApart <= 5)) {
+            continue;
+          }
+        }
+
+        // If OCR had NO card number on the receipt (e.g. an invoice), require either vendor similarity OR close date in addition to exact amount
+        if (!ocrPayload.last_four && stmt.last_four) {
+          if (vendorSim < 0.5 && (daysApart === null || daysApart > 7)) {
+            continue;
+          }
+        }
+
+        // If date is present on both, statement post date should be within 14 days of receipt date
+        if (daysApart !== null && daysApart > 14) {
+          continue;
+        }
+
+        // Score the candidate match
+        let score = 100; // Base score for exact amount match
+        if (cardExactMatch) score += 50;
+        score += Math.round(vendorSim * 40);
+        if (daysApart !== null) {
+          score += Math.max(0, 20 - daysApart * 2);
+        }
+
+        if (score > bestScore) {
+          bestScore = score;
+          bestCandidate = stmt;
+        }
+      }
+
+      return bestCandidate;
+    }
+
+    function integrateUploadedReceipt(payload) {
+      const match = findBestStatementMatch(payload);
+
+      if (match) {
+        // Save the original statement fields if not already saved, AND store the pure OCR fields!
+        if (!match.stmt_vendor) match.stmt_vendor = match.vendor;
+        if (match.stmt_amount === undefined) match.stmt_amount = match.amount;
+        if (!match.stmt_post_date) match.stmt_post_date = match.post_date;
+        if (!match.stmt_last_four) match.stmt_last_four = match.last_four;
+
+        match.ocr_vendor = payload.vendor;
+        match.ocr_amount = payload.amount;
+        match.ocr_post_date = payload.post_date;
+        match.ocr_last_four = payload.last_four;
+
+        match.status = 'matched';
+        match.job_id = payload.job_id || match.job_id || null;
+        match.cost_code_id = payload.cost_code_id || match.cost_code_id || null;
+        match.receipt_image = payload.receipt_image;
+      } else {
+        // If no matching statement line auto-matches, keep the receipt as a standalone record so it can be manually linked anytime!
+        const isIncomplete = !payload.vendor || payload.amount === null || !payload.post_date || !payload.last_four;
+        state.statementLines.unshift({
+          id: payload.id || ('rcpt-' + Date.now() + '-' + Math.random().toString(36).slice(2, 6)),
+          is_statement_row: false,
+          post_date: payload.post_date,
+          card_id: payload.card_id,
+          last_four: payload.last_four,
+          vendor: payload.vendor,
+          amount: payload.amount,
+          ocr_vendor: payload.vendor,
+          ocr_amount: payload.amount,
+          ocr_post_date: payload.post_date,
+          ocr_last_four: payload.last_four,
+          status: isIncomplete ? 'missing' : 'matched',
+          job_id: payload.job_id || null,
+          cost_code_id: payload.cost_code_id || null,
+          receipt_image: payload.receipt_image
+        });
+      }
+    }
+
+    // Reconcile any standalone uploaded receipts against newly imported statement rows
+    function reconcileStandaloneReceiptsWithStatements() {
+      const standaloneReceipts = state.statementLines.filter(s => s.is_statement_row === false && s.receipt_image);
+      const mergedIds = new Set();
+
+      for (const rcpt of standaloneReceipts) {
+        const match = findBestStatementMatch({
+          vendor: rcpt.ocr_vendor || rcpt.vendor,
+          amount: rcpt.ocr_amount !== undefined ? rcpt.ocr_amount : rcpt.amount,
+          post_date: rcpt.ocr_post_date || rcpt.post_date,
+          last_four: rcpt.ocr_last_four || rcpt.last_four
+        });
+
+        if (match && match.id !== rcpt.id) {
+          if (!match.stmt_vendor) match.stmt_vendor = match.vendor;
+          if (match.stmt_amount === undefined) match.stmt_amount = match.amount;
+          if (!match.stmt_post_date) match.stmt_post_date = match.post_date;
+          if (!match.stmt_last_four) match.stmt_last_four = match.last_four;
+
+          match.ocr_vendor = rcpt.ocr_vendor || rcpt.vendor;
+          match.ocr_amount = rcpt.ocr_amount !== undefined ? rcpt.ocr_amount : rcpt.amount;
+          match.ocr_post_date = rcpt.ocr_post_date || rcpt.post_date;
+          match.ocr_last_four = rcpt.ocr_last_four || rcpt.last_four;
+
+          match.status = 'matched';
+          match.job_id = rcpt.job_id || match.job_id || null;
+          match.cost_code_id = rcpt.cost_code_id || match.cost_code_id || null;
+          match.receipt_image = rcpt.receipt_image;
+          mergedIds.add(rcpt.id);
+        }
+      }
+
+      if (mergedIds.size > 0) {
+        state.statementLines = state.statementLines.filter(s => !mergedIds.has(s.id));
+      }
+      return mergedIds.size;
+    }
+
+    // Helper for concurrent batch execution (runs up to `concurrency` promises at once)
+    async function runWithConcurrency(items, concurrency, taskFn) {
+      let index = 0;
+      const workers = Array.from({ length: Math.min(concurrency, items.length) }, async () => {
+        while (index < items.length) {
+          const currentIndex = index++;
+          await taskFn(items[currentIndex], currentIndex);
+        }
+      });
+      await Promise.all(workers);
+    }
+
+    // Admin tool: Re-run pure blind OCR on all uploaded receipt photos in parallel and re-reconcile
+    async function rescanAndReconcileAllReceipts() {
+      const itemsWithPhotos = state.statementLines.filter(s => Boolean(s.receipt_image));
+      if (!itemsWithPhotos.length) {
+        return showSimpleToast('No uploaded receipt photos to rescan', true);
+      }
+
+      const prog = document.getElementById('reconcileRescanProgress');
+      const btn = document.getElementById('btnRescanAllReceipts');
+      if (prog) {
+        prog.classList.remove('hidden');
+        prog.textContent = `Parallel rescanning ${itemsWithPhotos.length} receipt photo(s) via blind OCR...`;
+      }
+      if (btn) btn.disabled = true;
+
+      // 1. Collect all receipt photos and their job/cost code selections
+      const photosToRescan = itemsWithPhotos.map(item => ({
+        receipt_image: item.receipt_image,
+        job_id: item.job_id || null,
+        cost_code_id: item.cost_code_id || null
+      }));
+
+      // 2. Reset statement lines back to clean, unmatched statement rows (and remove standalone receipt rows)
+      state.statementLines = state.statementLines
+        .filter(s => s.is_statement_row !== false && (s.stmt_vendor || s.vendor))
+        .map(s => ({
+          id: s.id,
+          is_statement_row: true,
+          post_date: s.stmt_post_date || s.post_date,
+          card_id: s.card_id,
+          last_four: s.stmt_last_four || s.last_four,
+          vendor: s.stmt_vendor || s.vendor,
+          amount: s.stmt_amount !== undefined ? s.stmt_amount : s.amount,
+          stmt_vendor: s.stmt_vendor || s.vendor,
+          stmt_amount: s.stmt_amount !== undefined ? s.stmt_amount : s.amount,
+          stmt_post_date: s.stmt_post_date || s.post_date,
+          stmt_last_four: s.stmt_last_four || s.last_four,
+          status: 'missing',
+          job_id: null,
+          cost_code_id: null,
+          receipt_image: null
+        }));
+
+      // 3. Run blind OCR in parallel (4 at a time) and re-reconcile strictly
+      let completedCount = 0;
+      const scannedResults = new Array(photosToRescan.length);
+
+      await runWithConcurrency(photosToRescan, 4, async (p, idx) => {
+        const media = {
+          displayDataUrl: p.receipt_image,
+          ocrBase64: p.receipt_image.split(',')[1] || '',
+          mimeType: 'image/jpeg'
+        };
+        const ocr = await extractReceiptOcrStrict(media);
+        completedCount++;
+        if (prog) {
+          prog.textContent = `Parallel blind OCR scanned ${completedCount} of ${photosToRescan.length} receipts...`;
+        }
+        scannedResults[idx] = { p, ocr, idx };
+      });
+
+      scannedResults.forEach(({ p, ocr, idx }) => {
+        const card = ocr.last_four ? state.cards.find(c => c.last_four === ocr.last_four) : null;
+        integrateUploadedReceipt({
+          id: 'rescan-' + Date.now() + '-' + idx,
+          post_date: ocr.post_date,
+          card_id: card ? card.id : null,
+          last_four: ocr.last_four,
+          vendor: ocr.vendor,
+          amount: ocr.amount,
+          job_id: p.job_id,
+          cost_code_id: p.cost_code_id,
+          receipt_image: p.receipt_image
+        });
+      });
+
+      if (prog) prog.classList.add('hidden');
+      if (btn) btn.disabled = false;
+      await saveState();
+      renderAll();
+      showSimpleToast(`Rescanned & Reconciled ${photosToRescan.length} Receipts`, false);
+    }
+
+    function getFieldInputClasses(isExtracted) {
+      return isExtracted
+        ? 'w-full bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-2 text-xs text-white font-semibold focus:outline-none focus:border-emerald-500'
+        : 'w-full bg-red-950/90 border-2 border-red-500 rounded-lg px-2.5 py-2 text-xs text-red-100 placeholder-red-300 font-bold focus:outline-none';
+    }
+
+    // CSV STATEMENT PARSER WITH INTELLIGENT COLUMN MAPPING
+    async function handleStatementImport(event) {
+      const files = Array.from(event.target.files || []);
+      event.target.value = '';
+      let added = 0;
+
+      for (const file of files) {
+        const text = await file.text();
+        const lines = text.split(/\r?\n/).map(l => l.trim()).filter(l => l);
+        if (lines.length < 1) continue;
+
+        const parseCsvLine = (line) => {
+          const row = [];
+          let insideQuote = false;
+          let entry = '';
+          for (let i = 0; i < line.length; i++) {
+            const char = line[i];
+            if (char === '"') {
+              insideQuote = !insideQuote;
+            } else if ((char === ',' || char === '\t' || char === ';') && !insideQuote) {
+              row.push(entry.trim());
+              entry = '';
+            } else {
+              entry += char;
+            }
+          }
+          row.push(entry.trim());
+          return row;
+        };
+
+        const rows = lines.map(parseCsvLine);
+
+        let headerRowIdx = 0;
+        let mapping = { date: 0, lastFour: 1, vendor: 2, amount: 3 };
+
+        for (let i = 0; i < Math.min(rows.length, 5); i++) {
+          const rowStr = rows[i].join(' ').toLowerCase();
+          if (rowStr.includes('date') && (rowStr.includes('amount') || rowStr.includes('desc') || rowStr.includes('card'))) {
+            headerRowIdx = i;
+            rows[i].forEach((col, idx) => {
+              const c = col.toLowerCase();
+              if (c.includes('date')) mapping.date = idx;
+              else if (c.includes('card') || c.includes('account') || c.includes('last')) mapping.lastFour = idx;
+              else if (c.includes('vendor') || c.includes('desc') || c.includes('name') || c.includes('merchant')) mapping.vendor = idx;
+              else if (c.includes('amount') || c.includes('debit') || c.includes('charge') || c.includes('sum')) mapping.amount = idx;
+            });
+            break;
+          }
+        }
+
+        const startIdx = headerRowIdx > 0 ? headerRowIdx + 1 : (rows[0].join(' ').toLowerCase().includes('date') ? 1 : 0);
+
+        for (let i = startIdx; i < rows.length; i++) {
+          const r = rows[i];
+          if (r.length < 2) continue;
+
+          let dateVal = null;
+          let amountVal = null;
+          let lastFourVal = null;
+          let vendorVal = null;
+
+          r.forEach((cell) => {
+            const cleanCell = cell.replace(/^["']|["']$/g, '');
+            if (!dateVal && /^\d{1,4}[\/\-]\d{1,2}[\/\-]\d{2,4}$/.test(cleanCell)) {
+              dateVal = normalizeOcrDate(cleanCell);
+            } else if (amountVal === null && /^-?\$?\d{1,6}\.\d{2}$/.test(cleanCell.replace(/[^0-9.-]/g, ''))) {
+              const num = parseFloat(cleanCell.replace(/[^0-9.-]/g, ''));
+              if (!isNaN(num) && num !== 0) amountVal = Math.abs(num);
+            } else if (!lastFourVal && /^\d{4}$/.test(cleanCell)) {
+              lastFourVal = cleanCell;
+            } else if (!vendorVal && cleanCell.length > 2 && isNaN(cleanCell)) {
+              vendorVal = cleanCell;
+            }
+          });
+
+          const fDate = normalizeOcrDate(r[mapping.date] || '') || dateVal;
+          const fAmount = normalizeOcrAmount(r[mapping.amount]) !== null ? normalizeOcrAmount(r[mapping.amount]) : amountVal;
+          const fLast4 = normalizeOcrLastFour(r[mapping.lastFour]) || lastFourVal;
+          const fVendor = (r[mapping.vendor] || vendorVal || 'UNKNOWN').replace(/"/g, '').toUpperCase();
+
+          if (fAmount !== null) {
+            const card = fLast4 ? state.cards.find(c => c.last_four === fLast4) : null;
+            state.statementLines.push({
+              id: 'stmt-' + Date.now() + '-' + added + '-' + i,
+              is_statement_row: true,
+              post_date: fDate,
+              card_id: card ? card.id : null,
+              last_four: fLast4,
+              vendor: fVendor,
+              amount: fAmount,
+              stmt_vendor: fVendor,
+              stmt_amount: fAmount,
+              stmt_post_date: fDate,
+              stmt_last_four: fLast4,
+              status: 'missing',
+              job_id: null,
+              cost_code_id: null,
+              receipt_image: null
+            });
+            added++;
+          }
+        }
+      }
+
+      const autoReconciled = reconcileStandaloneReceiptsWithStatements();
+      await saveState();
+      renderAll();
+      showSimpleToast(
+        autoReconciled > 0
+          ? `Imported ${added} lines (${autoReconciled} reconciled)`
+          : `Imported ${added} statement lines`,
+        false
+      );
+    }
+
+    // =========================================================================
+    // CREW CAPTURE (SUPPORTS 1 OR MULTIPLE RECEIPTS IN ONE PHOTO)
+    // =========================================================================
+    async function handleCrewSingleFile(event) {
+      const file = event.target.files?.[0];
+      event.target.value = '';
+      if (!file) return;
+
+      document.getElementById('captureButtonsGrid').classList.add('hidden');
+      document.getElementById('crewInspectionBox').classList.remove('hidden');
+
+      const submitBtn = document.getElementById('submitReceiptBtn');
+      submitBtn.disabled = true;
+      submitBtn.textContent = 'Detecting & Scanning Receipts...';
+
+      const processed = await processFileToDataUrl(file);
+      lastProcessedMedia = { file, processed };
+
+      await runOcrAndPopulateFields(file.name, processed);
+    }
+
+    async function retryCurrentReceiptOcr() {
+      if (lastProcessedMedia) await runOcrAndPopulateFields(lastProcessedMedia.file.name, lastProcessedMedia.processed);
+    }
+
+    async function runOcrAndPopulateFields(fileName, processed) {
+      const statusBadge = document.getElementById('ocrStatusBadge');
+      const container = document.getElementById('crewStagedReceiptsContainer');
+      const submitBtn = document.getElementById('submitReceiptBtn');
+
+      statusBadge.textContent = 'Fast Split & Blind OCR Scanning...';
+      statusBadge.className = 'px-2.5 py-0.5 rounded text-[11px] font-bold bg-indigo-500/20 text-indigo-300 animate-pulse';
+      container.innerHTML = `<div class="p-4 text-center text-xs text-slate-400">Scanning receipt image...</div>`;
+
+      const scannedItems = await detectAndScanReceiptsFast(processed, (msg) => {
+        statusBadge.textContent = msg;
+      });
+
+      stagedReceiptsList = scannedItems.map((item, i) => ({
+        fileName: scannedItems.length > 1 ? `${fileName} (#${i + 1})` : fileName,
+        receipt_image: item.displayDataUrl,
+        vendor: item.vendor,
+        amount: item.amount,
+        post_date: item.post_date,
+        last_four: item.last_four,
+        errorReason: item.errorReason
+      }));
+
+      renderStagedReceiptsCards();
+
+      const anyIncomplete = stagedReceiptsList.some(r => !r.vendor || r.amount === null || !r.post_date || !r.last_four);
+      if (anyIncomplete) {
+        statusBadge.textContent = scannedItems.length > 1
+          ? `Split ${scannedItems.length} Receipts (Check Red Fields)`
+          : 'OCR Incomplete';
+        statusBadge.className = 'px-2.5 py-0.5 rounded text-[11px] font-bold bg-red-500/20 text-red-300 border border-red-500/40';
+      } else {
+        statusBadge.textContent = scannedItems.length > 1
+          ? `Split & Scanned ${scannedItems.length} Receipts`
+          : 'OCR Complete';
+        statusBadge.className = 'px-2.5 py-0.5 rounded text-[11px] font-bold bg-emerald-500/20 text-emerald-300';
+      }
+
+      submitBtn.disabled = false;
+      submitBtn.className = 'w-full py-4 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-sm shadow-lg transition cursor-pointer';
+      submitBtn.textContent = stagedReceiptsList.length > 1
+        ? `Submit All ${stagedReceiptsList.length} Receipts`
+        : 'Submit Receipt';
+    }
+
+    function renderStagedReceiptsCards() {
+      const container = document.getElementById('crewStagedReceiptsContainer');
+      container.innerHTML = stagedReceiptsList.map((r, idx) => {
+        const missing = [];
+        if (r.vendor === null) missing.push('Vendor');
+        if (r.amount === null) missing.push('Total ($)');
+        if (r.post_date === null) missing.push('Date');
+        if (r.last_four === null) missing.push('Card Last 4');
+
+        const potentialMatch = findBestStatementMatch(r);
+
+        return `
+          <div class="bg-slate-950 border border-slate-800 rounded-xl p-3 space-y-2.5">
+            ${stagedReceiptsList.length > 1 ? `<div class="text-xs font-bold text-emerald-400">Separated Receipt #${idx + 1} of ${stagedReceiptsList.length}</div>` : ''}
+            <div onclick="openFullscreenZoom(stagedReceiptsList[${idx}].receipt_image)" class="relative cursor-pointer rounded-xl overflow-x-auto border border-slate-800 bg-black flex items-center justify-center p-1">
+              <img src="${r.receipt_image}" class="w-auto h-auto max-h-72 max-w-full rounded-lg" alt="Receipt Preview" />
+              <div class="absolute bottom-2 right-2 bg-black/80 text-white text-[11px] font-semibold px-2.5 py-1 rounded-lg border border-slate-700 pointer-events-none">Tap for Full-Screen Zoom</div>
+            </div>
+
+            ${missing.length > 0 ? `<div class="p-2 rounded-lg bg-red-950 border border-red-500 text-red-200 text-[11px] font-semibold">${r.errorReason || ('Not printed or unreadable on receipt: ' + missing.join(', '))}</div>` : ''}
+
+            ${potentialMatch
+              ? `<div class="p-2 rounded-lg bg-emerald-950/80 border border-emerald-500/50 text-emerald-200 text-[11px] font-semibold">
+                   ✓ Matches Stored Statement Line: <strong>${potentialMatch.stmt_vendor || potentialMatch.vendor}</strong> ($${Number(potentialMatch.amount).toFixed(2)} on ${potentialMatch.post_date || 'N/A'})
+                 </div>`
+              : `<div class="p-2 rounded-lg bg-slate-900 border border-slate-700 text-slate-300 text-[11px]">
+                   Will be stored with pure OCR data & compared against statement lines.
+                 </div>`
+            }
+
+            <div class="grid grid-cols-3 gap-2 pt-1">
+              <div class="col-span-2">
+                <label class="block text-[11px] text-slate-400 mb-0.5">OCR Vendor</label>
+                <input type="text" value="${r.vendor || ''}" placeholder="Vendor" oninput="handleStagedFieldFix(${idx}, this, 'vendor')" class="${getFieldInputClasses(r.vendor !== null)}" />
+              </div>
+              <div>
+                <label class="block text-[11px] text-slate-400 mb-0.5">OCR Total ($)</label>
+                <input type="number" step="0.01" value="${r.amount !== null ? r.amount.toFixed(2) : ''}" placeholder="Amount" oninput="handleStagedFieldFix(${idx}, this, 'amount')" class="${getFieldInputClasses(r.amount !== null)} font-mono" />
+              </div>
+            </div>
+
+            <div class="grid grid-cols-2 gap-2">
+              <div>
+                <label class="block text-[11px] text-slate-400 mb-0.5">OCR Receipt Date</label>
+                <input type="date" value="${r.post_date || ''}" onchange="handleStagedFieldFix(${idx}, this, 'post_date')" class="${getFieldInputClasses(r.post_date !== null)}" />
+              </div>
+              <div>
+                <label class="block text-[11px] text-slate-400 mb-0.5">OCR Card Last 4</label>
+                <input type="text" maxlength="4" value="${r.last_four || ''}" placeholder="Card #" oninput="handleStagedFieldFix(${idx}, this, 'last_four')" class="${getFieldInputClasses(r.last_four !== null)} font-mono" />
+              </div>
+            </div>
+          </div>
+        `;
+      }).join('');
+    }
+
+    function handleStagedFieldFix(idx, inputEl, key) {
+      const target = stagedReceiptsList[idx];
+      if (!target) return;
+      const val = inputEl.value.trim();
+      if (key === 'amount') {
+        const n = parseFloat(val);
+        target.amount = (!isNaN(n) && n > 0) ? n : null;
+        inputEl.className = `${getFieldInputClasses(target.amount !== null)} font-mono`;
+      } else if (key === 'last_four') {
+        const d = val.replace(/\D/g, '').slice(0, 4);
+        inputEl.value = d;
+        target.last_four = d.length === 4 ? d : null;
+        inputEl.className = `${getFieldInputClasses(target.last_four !== null)} font-mono`;
+      } else if (key === 'vendor') {
+        target.vendor = val ? val.toUpperCase() : null;
+        inputEl.className = getFieldInputClasses(target.vendor !== null);
+      } else {
+        target[key] = val || null;
+        inputEl.className = getFieldInputClasses(target[key] !== null);
+      }
+    }
+
+    async function submitCrewReceipt() {
+      if (!stagedReceiptsList.length) return;
+      const jobId = document.getElementById('crewJobSelect').value || null;
+      const costCodeId = document.getElementById('crewCostCodeSelect').value || null;
+
+      stagedReceiptsList.forEach((r, i) => {
+        const matchedCard = r.last_four ? state.cards.find(c => c.last_four === r.last_four) : null;
+        const payload = {
+          id: 'rcpt-' + Date.now() + '-' + i,
+          employee_id: activeCrewEmployeeId,
+          card_id: matchedCard ? matchedCard.id : null,
+          last_four: r.last_four,
+          post_date: r.post_date,
+          vendor: r.vendor,
+          amount: r.amount,
+          job_id: jobId,
+          cost_code_id: costCodeId,
+          receipt_image: r.receipt_image
+        };
+
+        if (!isOnline) {
+          state.offlineQueue.unshift(payload);
+        } else {
+          integrateUploadedReceipt(payload);
+        }
+      });
+
+      const count = stagedReceiptsList.length;
+      await saveState();
+      resetCrewFormInputs();
+      renderAll();
+      showSimpleToast(!isOnline ? `${count} Receipt(s) Queued` : (count > 1 ? `${count} Receipts Uploaded` : 'Upload Complete'), !isOnline);
+    }
+
+    function resetCrewFormInputs() {
+      stagedReceiptsList = [];
+      lastProcessedMedia = null;
+      const inspBox = document.getElementById('crewInspectionBox');
+      if (inspBox) inspBox.classList.add('hidden');
+      const capGrid = document.getElementById('captureButtonsGrid');
+      if (capGrid) capGrid.classList.remove('hidden');
+      const container = document.getElementById('crewStagedReceiptsContainer');
+      if (container) container.innerHTML = '';
+      const btn = document.getElementById('submitReceiptBtn');
+      if (btn) {
+        btn.disabled = true;
+        btn.className = 'w-full py-4 rounded-xl bg-slate-700 text-slate-400 font-bold text-sm transition cursor-not-allowed';
+        btn.textContent = 'Take Picture to Submit';
+      }
+    }
+
+    // INSPECTION MODAL: SHOWS PURE OCR READINGS + RECONCILIATION COMPARISON
+    function getEffectiveOcrData(item) {
+      return {
+        vendor: item.ocr_vendor !== undefined ? item.ocr_vendor : item.vendor,
+        amount: item.ocr_amount !== undefined ? item.ocr_amount : item.amount,
+        post_date: item.ocr_post_date !== undefined ? item.ocr_post_date : item.post_date,
+        last_four: item.ocr_last_four !== undefined ? item.ocr_last_four : item.last_four
+      };
+    }
+
+    function viewReceiptModal(itemId) {
+      const item = state.statementLines.find(x => x.id === itemId);
+      if (!item) return;
+
+      const ocrData = item.receipt_image ? getEffectiveOcrData(item) : {
+        vendor: item.vendor,
+        amount: item.amount,
+        post_date: item.post_date,
+        last_four: item.last_four
+      };
+
+      const displayLastFour = ocrData.last_four || item.last_four;
+      const card = displayLastFour ? state.cards.find(c => c.last_four === displayLastFour) : null;
+      const emp = card ? state.employees.find(e => e.id === card.assigned_employee_id) : null;
+      const job = state.jobs.find(j => j.id === item.job_id);
+      const cc = state.costCodes.find(c => c.id === item.cost_code_id);
+
+      const unassignedStatements = state.statementLines.filter(s => s.status === 'missing' && !s.receipt_image);
+
+      document.getElementById('modalTitle').textContent = 'Receipt & OCR Inspection';
+      document.getElementById('modalBody').innerHTML = `
+        <div class="space-y-3">
+          ${item.receipt_image
+            ? `<div class="space-y-2">
+                 <div onclick="openFullscreenZoomByItemId('${item.id}')" class="relative cursor-pointer rounded-xl border border-slate-800 bg-black p-1.5 overflow-x-auto flex items-center justify-center">
+                   <img src="${item.receipt_image}" class="w-auto h-auto max-w-full rounded-lg" style="image-rendering: auto;" alt="Receipt Image" />
+                   <div class="absolute bottom-2.5 right-2.5 bg-black/85 text-emerald-300 border border-emerald-500/40 text-[11px] font-bold px-3 py-1.5 rounded-xl shadow-lg pointer-events-none flex items-center gap-1.5">
+                     <span>🔍 Tap Image for Full-Screen Zoom</span>
+                   </div>
+                 </div>
+                 <div class="grid grid-cols-3 gap-2">
+                   <button type="button" onclick="openFullscreenZoomByItemId('${item.id}')" class="py-2 px-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-bold text-xs border border-slate-700 transition">
+                     Full-Screen Zoom
+                   </button>
+                   <button type="button" id="btnRescanSingle" onclick="rescanSingleModalReceipt('${item.id}')" class="py-2 px-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow transition">
+                     Rescan Blind OCR
+                   </button>
+                   <button type="button" id="btnSplitExisting" onclick="splitExistingReceiptItem('${item.id}')" class="py-2 px-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs shadow transition">
+                     Split Multi-Receipt
+                   </button>
+                 </div>
+                 <div id="splitModalStatus" class="hidden text-xs text-indigo-300 font-semibold text-center py-1 animate-pulse"></div>
+               </div>`
+            : `<div class="p-8 bg-slate-950 border border-slate-800 rounded-xl text-center text-slate-500">No receipt image attached yet.</div>`
+          }
+
+          <!-- Pure Blind OCR Extracted Values -->
+          <div class="bg-slate-950 rounded-xl p-3.5 border border-slate-800 space-y-2.5">
+            <div class="flex items-center justify-between border-b border-slate-800/80 pb-1.5">
+              <span class="text-[11px] font-bold uppercase tracking-wider text-emerald-400">
+                ${item.receipt_image ? 'Scanned directly from Receipt (Blind OCR)' : 'Statement Transaction Details'}
+              </span>
+            </div>
+            <div class="grid grid-cols-2 gap-3 text-xs">
+              <div>
+                <span class="text-slate-400 block mb-0.5">Vendor (Read from Image)</span>
+                ${ocrData.vendor ? `<strong class="text-white">${ocrData.vendor}</strong>` : redFieldBadge('Vendor')}
+              </div>
+              <div>
+                <span class="text-slate-400 block mb-0.5">Total $ (Read from Image)</span>
+                ${ocrData.amount !== null && ocrData.amount !== undefined ? `<strong class="text-emerald-400 font-mono text-sm">${formatCurrency(ocrData.amount)}</strong>` : redFieldBadge('Total')}
+              </div>
+              <div>
+                <span class="text-slate-400 block mb-0.5">Receipt Date (Read from Image)</span>
+                ${ocrData.post_date ? `<strong class="text-white font-mono">${ocrData.post_date}</strong>` : redFieldBadge('Date')}
+              </div>
+              <div>
+                <span class="text-slate-400 block mb-0.5">Card & Employee</span>
+                ${ocrData.last_four ? `<strong class="text-white font-mono">•••• ${ocrData.last_four} (${emp ? emp.full_name : 'Unassigned'})</strong>` : redFieldBadge('Card Last 4')}
+              </div>
+            </div>
+
+            <!-- Job Name & Cost Code Assignment (Insisted upon for reconciliation) -->
+            <div class="grid grid-cols-2 gap-2.5 pt-2 border-t border-slate-800">
+              <div>
+                <label class="block text-[11px] font-semibold text-slate-300 mb-1">Job Name *</label>
+                <select id="modalJobSelect" onchange="updateItemCoding('${item.id}', 'job_id', this.value)" class="w-full bg-slate-900 border ${!item.job_id ? 'border-red-500/80 text-red-300 font-bold' : 'border-slate-700 text-white'} rounded-lg px-2.5 py-2 text-xs focus:outline-none">
+                  <option value="">-- Select Job Name --</option>
+                  ${state.jobs.map(j => `<option value="${j.id}" ${j.id === item.job_id ? 'selected' : ''}>${j.name}</option>`).join('')}
+                </select>
+              </div>
+              <div>
+                <label class="block text-[11px] font-semibold text-slate-300 mb-1">Cost Code *</label>
+                <select id="modalCcSelect" onchange="updateItemCoding('${item.id}', 'cost_code_id', this.value)" class="w-full bg-slate-900 border ${!item.cost_code_id ? 'border-red-500/80 text-red-300 font-bold' : 'border-slate-700 text-white'} rounded-lg px-2.5 py-2 text-xs focus:outline-none">
+                  <option value="">-- Select Cost Code --</option>
+                  ${state.costCodes.map(c => `<option value="${c.id}" ${c.id === item.cost_code_id ? 'selected' : ''}>${c.name}</option>`).join('')}
+                </select>
+              </div>
+            </div>
+            ${(!item.job_id || !item.cost_code_id) ? `<div class="text-[10px] text-red-400 font-bold">⚠ Job Name and Cost Code are required for complete reconciliation.</div>` : ''}
+          </div>
+
+          <!-- Manual Bank Statement Override / Assignment Backup -->
+          <div class="bg-slate-950 rounded-xl p-3.5 border border-slate-800 space-y-2">
+            <span class="text-[11px] font-bold uppercase tracking-wider text-slate-300 block">Manual Statement Override / Link</span>
+            <p class="text-[11px] text-slate-400">If this receipt didn't auto-link or needs to be linked to a different transaction, select the bank statement line below:</p>
+            <select id="manualAssignStmtSelect" onchange="manualAssignReceiptToStatement('${item.id}', this.value)" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2.5 text-xs text-white focus:outline-none">
+              <option value="">-- Link to Statement Line --</option>
+              ${unassignedStatements.map(s => `<option value="${s.id}">${s.vendor || 'UNKNOWN'} — ${formatCurrency(s.amount)} (${s.post_date || 'No Date'}) [••${s.last_four || '----'}]</option>`).join('')}
+            </select>
+          </div>
+
+          <!-- Delete Action with Confirmation Prompt -->
+          <div class="pt-2 border-t border-slate-800 flex justify-between items-center">
+            <button type="button" onclick="promptDeleteReceiptItem('${item.id}')" class="px-3.5 py-2 rounded-xl bg-red-950 hover:bg-red-900 text-red-300 border border-red-500/40 font-bold text-xs transition">
+              🗑 Delete Record / Photo
+            </button>
+            <button type="button" onclick="closeModal()" class="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs">
+              Close
+            </button>
+          </div>
+          <div id="deleteConfirmBanner_${item.id}" class="hidden p-3 rounded-xl bg-red-950 border border-red-500 text-red-100 space-y-2">
+            <p class="text-xs font-bold">Are you sure you want to permanently delete this record/photo?</p>
+            <div class="flex gap-2">
+              <button type="button" onclick="executeDeleteReceiptItem('${item.id}')" class="px-3 py-1.5 rounded-lg bg-red-600 hover:bg-red-500 text-white font-bold text-xs">Yes, Delete</button>
+              <button type="button" onclick="document.getElementById('deleteConfirmBanner_${item.id}').classList.add('hidden')" class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 font-semibold text-xs">Cancel</button>
+            </div>
+          </div>
+        </div>
+      `;
+      document.getElementById('appModal').classList.remove('hidden');
+    }
+
+    async function manualAssignReceiptToStatement(rcptId, stmtId) {
+      if (!stmtId) return;
+      const rcpt = state.statementLines.find(x => x.id === rcptId);
+      const stmt = state.statementLines.find(x => x.id === stmtId);
+      if (!rcpt || !stmt) return;
+
+      stmt.stmt_vendor = stmt.vendor;
+      stmt.stmt_amount = stmt.amount;
+      stmt.stmt_post_date = stmt.post_date;
+      stmt.stmt_last_four = stmt.last_four;
+
+      stmt.ocr_vendor = rcpt.ocr_vendor || rcpt.vendor;
+      stmt.ocr_amount = rcpt.ocr_amount !== undefined ? rcpt.ocr_amount : rcpt.amount;
+      stmt.ocr_post_date = rcpt.ocr_post_date || rcpt.post_date;
+      stmt.ocr_last_four = rcpt.ocr_last_four || rcpt.last_four;
+
+      stmt.status = 'matched';
+      stmt.job_id = rcpt.job_id || stmt.job_id || null;
+      stmt.cost_code_id = rcpt.cost_code_id || stmt.cost_code_id || null;
+      stmt.receipt_image = rcpt.receipt_image;
+
+      state.statementLines = state.statementLines.filter(x => x.id !== rcptId);
+
+      await saveState();
+      closeModal();
+      renderAll();
+      showSimpleToast('Receipt Manually Assigned to Statement', false);
+    }
+
+    function promptDeleteReceiptItem(itemId) {
+      const banner = document.getElementById(`deleteConfirmBanner_${itemId}`);
+      if (banner) banner.classList.remove('hidden');
+    }
+
+    async function executeDeleteReceiptItem(itemId) {
+      state.statementLines = state.statementLines.filter(x => x.id !== itemId);
+      await saveState();
+      closeModal();
+      renderAll();
+      showSimpleToast('Record Deleted', true);
+    }
+
+    async function rescanSingleModalReceipt(itemId) {
+      const item = state.statementLines.find(x => x.id === itemId);
+      if (!item || !item.receipt_image) return;
+
+      const statusEl = document.getElementById('splitModalStatus');
+      const btnEl = document.getElementById('btnRescanSingle');
+      if (statusEl) {
+        statusEl.classList.remove('hidden');
+        statusEl.textContent = 'Running pure blind OCR on receipt image...';
+      }
+      if (btnEl) btnEl.disabled = true;
+
+      const receiptImg = item.receipt_image;
+      const savedJob = item.job_id || null;
+      const savedCc = item.cost_code_id || null;
+
+      if (item.is_statement_row || item.stmt_vendor) {
+        item.vendor = item.stmt_vendor || item.vendor;
+        item.amount = item.stmt_amount !== undefined ? item.stmt_amount : item.amount;
+        item.post_date = item.stmt_post_date || item.post_date;
+        item.last_four = item.stmt_last_four || item.last_four;
+        delete item.ocr_vendor;
+        delete item.ocr_amount;
+        delete item.ocr_post_date;
+        delete item.ocr_last_four;
+        item.receipt_image = null;
+        item.status = 'missing';
+      } else {
+        state.statementLines = state.statementLines.filter(x => x.id !== itemId);
+      }
+
+      const media = {
+        displayDataUrl: receiptImg,
+        ocrBase64: receiptImg.split(',')[1] || '',
+        mimeType: 'image/jpeg'
+      };
+      const ocr = await extractReceiptOcrStrict(media);
+      const card = ocr.last_four ? state.cards.find(c => c.last_four === ocr.last_four) : null;
+      const newId = 'rcpt-' + Date.now();
+
+      integrateUploadedReceipt({
+        id: newId,
+        post_date: ocr.post_date,
+        card_id: card ? card.id : null,
+        last_four: ocr.last_four,
+        vendor: ocr.vendor,
+        amount: ocr.amount,
+        job_id: savedJob,
+        cost_code_id: savedCc,
+        receipt_image: receiptImg
+      });
+
+      await saveState();
+      renderAll();
+
+      const updatedItem = state.statementLines.find(x => x.id === newId || x.receipt_image === receiptImg);
+      if (updatedItem) {
+        viewReceiptModal(updatedItem.id);
+      } else {
+        closeModal();
+      }
+      showSimpleToast('Blind OCR Rescan Complete', false);
+    }
+
+    async function updateItemCoding(itemId, field, value) {
+      const item = state.statementLines.find(x => x.id === itemId);
+      if (!item) return;
+      if (field === 'job_id') item.job_id = value || null;
+      if (field === 'cost_code_id') item.cost_code_id = value || null;
+      await saveState();
+      renderAll();
+    }
+
+    function openFullscreenZoomByItemId(itemId) {
+      const item = state.statementLines.find(x => x.id === itemId);
+      if (item && item.receipt_image) {
+        openFullscreenZoom(item.receipt_image);
+      }
+    }
+
+    async function splitExistingReceiptItem(itemId) {
+      const item = state.statementLines.find(x => x.id === itemId);
+      if (!item || !item.receipt_image) return;
+
+      const statusEl = document.getElementById('splitModalStatus');
+      const btnEl = document.getElementById('btnSplitExisting');
+      if (statusEl) {
+        statusEl.classList.remove('hidden');
+        statusEl.textContent = 'Fast splitting & parallel scanning receipts...';
+      }
+      if (btnEl) btnEl.disabled = true;
+
+      const sourceMedia = {
+        displayDataUrl: item.receipt_image,
+        ocrBase64: item.receipt_image.split(',')[1] || '',
+        mimeType: 'image/jpeg'
+      };
+      const savedJob = item.job_id || null;
+      const savedCc = item.cost_code_id || null;
+
+      const scannedItems = await detectAndScanReceiptsFast(sourceMedia, (msg) => {
+        if (statusEl) statusEl.textContent = msg;
+      });
+
+      if (item.is_statement_row || item.stmt_vendor) {
+        item.vendor = item.stmt_vendor || item.vendor;
+        item.amount = item.stmt_amount !== undefined ? item.stmt_amount : item.amount;
+        item.post_date = item.stmt_post_date || item.post_date;
+        item.last_four = item.stmt_last_four || item.last_four;
+        delete item.ocr_vendor;
+        delete item.ocr_amount;
+        delete item.ocr_post_date;
+        delete item.ocr_last_four;
+        item.receipt_image = null;
+        item.status = 'missing';
+      } else {
+        state.statementLines = state.statementLines.filter(x => x.id !== itemId);
+      }
+
+      scannedItems.forEach((scanned, i) => {
+        const card = scanned.last_four ? state.cards.find(c => c.last_four === scanned.last_four) : null;
+        integrateUploadedReceipt({
+          id: 'split-' + Date.now() + '-' + i,
+          post_date: scanned.post_date,
+          card_id: card ? card.id : null,
+          last_four: scanned.last_four,
+          vendor: scanned.vendor,
+          amount: scanned.amount,
+          job_id: savedJob,
+          cost_code_id: savedCc,
+          receipt_image: scanned.displayDataUrl
+        });
+      });
+
+      await saveState();
+      closeModal();
+      renderAll();
+      showSimpleToast(scannedItems.length > 1 ? `Split & Scanned ${scannedItems.length} Receipts` : 'Rescanned Receipt', false);
+    }
+
+    function closeModal() { document.getElementById('appModal').classList.add('hidden'); }
+
+    async function addNewEmployeeCard() {
+      const name = document.getElementById('newEmpName').value.trim();
+      const last4 = document.getElementById('newCardLastFour').value.replace(/\D/g, '').slice(-4);
+      const pinRaw = (document.getElementById('newEmpPin')?.value || '').replace(/\D/g, '').slice(0, 4);
+      const pin = pinRaw.length === 4 ? pinRaw : '1234';
+      if (!name || last4.length !== 4) return showSimpleToast('Enter Name & 4-Digit Card #', true);
+      const empId = 'emp-' + Date.now();
+      state.employees.push({ id: empId, full_name: name, pin, active: true });
+      state.cards.push({ id: 'card-' + Date.now(), last_four: last4, assigned_employee_id: empId });
+      document.getElementById('newEmpName').value = '';
+      document.getElementById('newCardLastFour').value = '';
+      if (document.getElementById('newEmpPin')) document.getElementById('newEmpPin').value = '';
+      if (!activeCrewEmployeeId) activeCrewEmployeeId = empId;
+      populateLoginDropdown();
+      await saveState(); renderAll();
+      showSimpleToast('Employee Card Added', false);
+    }
+
+    async function bulkImportRoster() {
+      const lines = document.getElementById('bulkPasteRoster').value.trim().split('\n');
+      let count = 0;
+      lines.forEach((line, idx) => {
+        const m = line.trim().match(/^(.+?)[,\s\-]+(\d{4})$/);
+        if (m) {
+          const empId = 'emp-' + Date.now() + '-' + idx;
+          state.employees.push({ id: empId, full_name: m[1].trim(), pin: '1234', active: true });
+          state.cards.push({ id: 'card-' + Date.now() + '-' + idx, last_four: m[2], assigned_employee_id: empId });
+          if (!activeCrewEmployeeId) activeCrewEmployeeId = empId;
+          count++;
+        }
+      });
+      document.getElementById('bulkPasteRoster').value = '';
+      populateLoginDropdown();
+      await saveState(); renderAll();
+      showSimpleToast(`Imported ${count} Users`, false);
+    }
+
+    async function toggleEmployeeActiveStatus(empId) {
+      const emp = state.employees.find(e => e.id === empId);
+      if (!emp) return;
+      emp.active = emp.active === false ? true : false;
+      if (emp.active === false && activeCrewEmployeeId === empId) {
+        const firstActive = state.employees.find(e => e.active !== false);
+        activeCrewEmployeeId = firstActive ? firstActive.id : null;
+      }
+      populateLoginDropdown();
+      await saveState();
+      renderAll();
+      showSimpleToast(
+        emp.active ? `${emp.full_name} Reactivated` : `${emp.full_name} Set to Inactive`,
+        !emp.active
+      );
+    }
+
+    function openEditEmployeeModal(empId) {
+      const emp = state.employees.find(e => e.id === empId);
+      if (!emp) return;
+      const card = state.cards.find(c => c.assigned_employee_id === emp.id);
+      const isActive = emp.active !== false;
+
+      document.getElementById('modalTitle').textContent = 'Edit Employee Profile & Access';
+      document.getElementById('modalBody').innerHTML = `
+        <div class="space-y-4">
+          <div class="flex items-center justify-between p-3 rounded-xl bg-slate-950 border border-slate-800">
+            <div>
+              <span class="text-[11px] text-slate-400 block">Profile Access Status</span>
+              <span class="text-xs font-bold ${isActive ? 'text-emerald-400' : 'text-amber-400'}">
+                ${isActive ? '● Active (Can Sign In)' : '○ Inactive (Login Disabled — Records Preserved)'}
+              </span>
+            </div>
+            <button type="button" onclick="toggleEmployeeActiveInModal('${emp.id}')" class="px-3 py-1.5 rounded-lg font-bold text-xs border transition ${isActive ? 'bg-amber-950/70 hover:bg-amber-900 text-amber-300 border-amber-500/40' : 'bg-emerald-950/70 hover:bg-emerald-900 text-emerald-300 border-emerald-500/40'}">
+              ${isActive ? 'Set Inactive' : 'Set Active'}
+            </button>
+          </div>
+
+          <div class="space-y-3">
+            <div>
+              <label class="block text-xs font-semibold text-slate-300 mb-1">Employee Full Name</label>
+              <input type="text" id="editEmpNameInput" value="${emp.full_name.replace(/"/g, '&quot;')}" class="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2.5 text-xs text-white font-semibold focus:outline-none focus:border-emerald-500" />
+            </div>
+
+            <div class="grid grid-cols-2 gap-3">
+              <div>
+                <label class="block text-xs font-semibold text-slate-300 mb-1">Card Last 4 Digits</label>
+                <input type="text" inputmode="numeric" maxlength="4" id="editEmpCardInput" value="${card ? card.last_four : ''}" placeholder="1234" class="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2.5 text-xs text-emerald-400 font-mono font-bold focus:outline-none focus:border-emerald-500" />
+              </div>
+              <div>
+                <label class="block text-xs font-semibold text-slate-300 mb-1">4-Digit Login PIN</label>
+                <input type="text" inputmode="numeric" maxlength="4" id="editEmpPinInput" value="${emp.pin || '1234'}" placeholder="1234" class="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2.5 text-xs text-white font-mono font-bold focus:outline-none focus:border-emerald-500" />
+              </div>
+            </div>
+          </div>
+
+          <div id="editEmpErrorMsg" class="hidden p-2.5 rounded-xl bg-red-950 border border-red-500 text-red-200 text-xs font-semibold"></div>
+
+          <div class="flex items-center justify-between pt-2 border-t border-slate-800">
+            <button type="button" onclick="document.getElementById('confirmDeleteEmpBox_${emp.id}').classList.remove('hidden')" class="px-3 py-2 rounded-xl bg-red-950/70 hover:bg-red-900 text-red-300 border border-red-500/40 font-bold text-xs transition">
+              Delete User
+            </button>
+            <div class="flex items-center gap-2">
+              <button type="button" onclick="closeModal()" class="px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs">Cancel</button>
+              <button type="button" onclick="saveEditedEmployee('${emp.id}')" class="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow transition">Save Changes</button>
+            </div>
+          </div>
+
+          <div id="confirmDeleteEmpBox_${emp.id}" class="hidden p-3 rounded-xl bg-red-950 border border-red-500 text-red-100 space-y-2">
+            <p class="text-xs font-bold">Permanently delete ${emp.full_name}? (Tip: Use "Set Inactive" above if you want to keep their historical profile and just disable login.)</p>
+            <div class="flex gap-2">
+              <button type="button" onclick="deleteEmployeeCard('${emp.id}')" class="px-3 py-1.5 rounded-lg bg-red-600 hover:bg-red-500 text-white font-bold text-xs">Yes, Permanently Delete</button>
+              <button type="button" onclick="document.getElementById('confirmDeleteEmpBox_${emp.id}').classList.add('hidden')" class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 font-semibold text-xs">Cancel</button>
+            </div>
+          </div>
+        </div>
+      `;
+      document.getElementById('appModal').classList.remove('hidden');
+    }
+
+    async function toggleEmployeeActiveInModal(empId) {
+      await toggleEmployeeActiveStatus(empId);
+      openEditEmployeeModal(empId);
+    }
+
+    async function saveEditedEmployee(empId) {
+      const emp = state.employees.find(e => e.id === empId);
+      if (!emp) return;
+
+      const nameVal = document.getElementById('editEmpNameInput').value.trim();
+      const cardVal = document.getElementById('editEmpCardInput').value.replace(/\D/g, '').slice(0, 4);
+      const pinVal = document.getElementById('editEmpPinInput').value.replace(/\D/g, '').slice(0, 4);
+      const errEl = document.getElementById('editEmpErrorMsg');
+
+      if (!nameVal) {
+        errEl.textContent = 'Employee name cannot be empty.';
+        errEl.classList.remove('hidden');
+        return;
+      }
+      if (cardVal.length !== 4) {
+        errEl.textContent = 'Card Last 4 must be exactly 4 digits.';
+        errEl.classList.remove('hidden');
+        return;
+      }
+      if (pinVal.length !== 4) {
+        errEl.textContent = 'Login PIN must be exactly 4 digits.';
+        errEl.classList.remove('hidden');
+        return;
+      }
+
+      emp.full_name = nameVal;
+      emp.pin = pinVal;
+
+      let card = state.cards.find(c => c.assigned_employee_id === emp.id);
+      const oldLastFour = card ? card.last_four : null;
+      if (card) {
+        card.last_four = cardVal;
+      } else {
+        card = { id: 'card-' + Date.now(), last_four: cardVal, assigned_employee_id: emp.id };
+        state.cards.push(card);
+      }
+
+      // Update any statement lines explicitly linked to this card_id
+      state.statementLines.forEach(s => {
+        if (s.card_id === card.id) {
+          s.last_four = cardVal;
+        } else if (!s.card_id && s.last_four === cardVal) {
+          s.card_id = card.id;
+        } else if (oldLastFour && s.card_id === card.id && s.stmt_last_four === oldLastFour) {
+          s.stmt_last_four = cardVal;
+        }
+      });
+
+      populateLoginDropdown();
+      await saveState();
+      closeModal();
+      renderAll();
+      showSimpleToast('Employee Updated', false);
+    }
+
+    async function deleteEmployeeCard(empId) {
+      state.employees = state.employees.filter(e => e.id !== empId);
+      state.cards = state.cards.filter(c => c.assigned_employee_id !== empId);
+      if (activeCrewEmployeeId === empId) {
+        const firstActive = state.employees.find(e => e.active !== false);
+        activeCrewEmployeeId = firstActive ? firstActive.id : null;
+      }
+      populateLoginDropdown();
+      await saveState();
+      closeModal();
+      renderAll();
+      showSimpleToast('Employee Removed', true);
+    }
+
+    async function addJobName() {
+      const v = document.getElementById('newJobNameInput').value.trim();
+      if (!v) return;
+      state.jobs.push({ id: 'job-' + Date.now(), name: v });
+      document.getElementById('newJobNameInput').value = '';
+      await saveState(); renderAll();
+      showSimpleToast('Job Added', false);
+    }
+
+    async function removeJobName(id) { state.jobs = state.jobs.filter(j => j.id !== id); await saveState(); renderAll(); }
+
+    async function addCostCode() {
+      const v = document.getElementById('newCostCodeInput').value.trim();
+      if (!v) return;
+      state.costCodes.push({ id: 'cc-' + Date.now(), name: v });
+      document.getElementById('newCostCodeInput').value = '';
+      await saveState(); renderAll();
+      showSimpleToast('Cost Code Added', false);
+    }
+
+    async function removeCostCode(id) {
+      state.costCodes = state.costCodes.filter(c => c.id !== id);
+      await saveState();
+      renderAll();
+    }
+
+    // ADMIN BATCH IMPORT WITH PARALLEL MULTI-RECEIPT DETECTION & BLIND OCR
+    async function handleReceiptBatchImport(event) {
+      const files = Array.from(event.target.files || []).filter(f => f && !f.name.startsWith('.') && (/\.(jpe?g|png|webp|heic|heif|pdf)$/i.test(f.name) || f.type.startsWith('image/') || f.type === 'application/pdf'));
+      event.target.value = '';
+      if (!files.length) return;
+      const statusEl = document.getElementById('importBatchStatus');
+      let completedFiles = 0;
+      let totalReceiptsScanned = 0;
+
+      statusEl.textContent = `Parallel scanning ${files.length} file(s) (up to 4 at a time)...`;
+
+      const batchResults = new Array(files.length);
+      await runWithConcurrency(files, 4, async (file, fileIdx) => {
+        const processed = await processFileToDataUrl(file);
+        const scannedItems = await detectAndScanReceiptsFast(processed);
+        batchResults[fileIdx] = scannedItems;
+        completedFiles++;
+        totalReceiptsScanned += scannedItems.length;
+        statusEl.textContent = `Completed ${completedFiles}/${files.length} files (${totalReceiptsScanned} receipt(s) scanned)...`;
+      });
+
+      batchResults.forEach((scannedItems, fileIdx) => {
+        if (!scannedItems) return;
+        scannedItems.forEach((scanned, subIdx) => {
+          const card = scanned.last_four ? state.cards.find(c => c.last_four === scanned.last_four) : null;
+          integrateUploadedReceipt({
+            id: 'batch-' + Date.now() + '-' + fileIdx + '-' + subIdx,
+            post_date: scanned.post_date,
+            card_id: card ? card.id : null,
+            last_four: scanned.last_four,
+            vendor: scanned.vendor,
+            amount: scanned.amount,
+            job_id: null,
+            cost_code_id: null,
+            receipt_image: scanned.displayDataUrl
+          });
+        });
+      });
+
+      await saveState();
+      renderAll();
+      statusEl.textContent = `Processed ${files.length} file(s) → Blind OCR scanned & compared ${totalReceiptsScanned} receipt(s).`;
+      showSimpleToast(`Scanned ${totalReceiptsScanned} Receipts`, false);
+    }
+
+    function showSimpleToast(msg, isQueued = false) {
+      const t = document.getElementById('statusToast');
+      t.textContent = msg;
+      t.className = `fixed top-16 left-1/2 -translate-x-1/2 z-50 px-5 py-2.5 rounded-xl font-bold text-sm shadow-2xl transition-all ${isQueued ? 'bg-amber-500 text-slate-950' : 'bg-emerald-500 text-slate-950'}`;
+      t.classList.remove('hidden');
+      if (toastTimer) clearTimeout(toastTimer);
+      toastTimer = setTimeout(() => t.classList.add('hidden'), 2200);
+    }
+
+    function switchRole(role) {
+      currentRole = role;
+      activeFeature = 'receipts';
+      updateRoleMenuVisibility(role);
+      document.getElementById('viewOtherModule').classList.add('hidden');
+      document.getElementById('viewCrew').classList.toggle('hidden', role !== 'crew');
+      document.getElementById('viewAdmin').classList.toggle('hidden', role !== 'admin');
+      document.getElementById('topBarPageTitle').textContent = role === 'admin'
+        ? (ADMIN_PAGE_TITLES[currentAdminPage] || 'Statement Reconciler')
+        : 'Receipts';
+      renderAll();
+    }
+
+    async function toggleNetwork() {
+      if (currentRole !== 'admin') return;
+      isOnline = !isOnline;
+      renderAll();
+      showSimpleToast(isOnline ? 'Switched to Online Mode' : 'Switched to Offline Mode', !isOnline);
+    }
+
+    function updateTopBarIndicators() {
+      const k = getCleanApiKey();
+      const drawerKey = document.getElementById('drawerKeyStatus');
+      if (drawerKey) {
+        drawerKey.textContent = k ? 'Active' : 'Set Key';
+        drawerKey.className = k ? 'text-[10px] text-emerald-400 font-mono' : 'text-[10px] text-amber-400 font-mono';
+      }
+
+      const drawerNet = document.getElementById('drawerNetStatus');
+      if (drawerNet) {
+        drawerNet.textContent = isOnline ? 'Online' : 'Offline';
+        drawerNet.className = isOnline ? 'text-[10px] text-emerald-400 font-bold' : 'text-[10px] text-amber-400 font-bold';
+      }
+
+      const netBadge = document.getElementById('networkPageBadge');
+      if (netBadge) {
+        netBadge.textContent = isOnline ? 'Online' : 'Offline';
+        netBadge.className = isOnline
+          ? 'px-2.5 py-1 rounded-lg font-bold text-emerald-300 bg-emerald-500/15 border border-emerald-500/30'
+          : 'px-2.5 py-1 rounded-lg font-bold text-amber-300 bg-amber-500/15 border border-amber-500/30';
+      }
+
+      const dot = document.getElementById('topBarStatusDot');
+      if (dot) {
+        dot.className = isOnline ? 'w-2 h-2 rounded-full bg-emerald-400' : 'w-2 h-2 rounded-full bg-amber-400';
+      }
+    }
+
+    function setAdminFilter(f) {
+      adminFilter = f;
+      ['all', 'missing', 'matched'].forEach(k => {
+        const btn = document.getElementById(`filterBtn_${k}`);
+        if (!btn) return;
+        if (k === f) {
+          btn.className = 'px-3 py-1.5 rounded-lg text-xs font-bold bg-indigo-600 text-white shadow';
+        } else if (k === 'missing') {
+          btn.className = 'px-3 py-1.5 rounded-lg text-xs font-bold bg-slate-800 text-red-300 border border-red-500/30';
+        } else if (k === 'matched') {
+          btn.className = 'px-3 py-1.5 rounded-lg text-xs font-bold bg-slate-800 text-emerald-300 border border-emerald-500/30';
+        } else {
+          btn.className = 'px-3 py-1.5 rounded-lg text-xs font-bold bg-slate-800 text-slate-300 border border-slate-700';
+        }
+      });
+      renderAdminView();
+    }
+
+    function formatCurrency(val) {
+      const num = Number(val) || 0;
+      return '$' + num.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    }
+
+    function redFieldBadge(label) {
+      return `<span class="inline-block px-2 py-0.5 rounded bg-red-950 border border-red-500 text-red-200 font-bold text-[10px]">OCR Failed: ${label}</span>`;
+    }
+
+    function renderAll() {
+      updateTopBarIndicators();
+      if (!activeCrewEmployeeId && state.employees.length) {
+        activeCrewEmployeeId = state.employees[0].id;
+      }
+      renderCrewView();
+      renderAdminView();
+    }
+
+    function renderCrewView() {
+      const emp = state.employees.find(e => e.id === activeCrewEmployeeId) || state.employees[0];
+      const card = emp ? state.cards.find(c => c.assigned_employee_id === emp.id) : null;
+
+      document.getElementById('crewHeaderName').textContent = emp ? emp.full_name : 'No Employee Selected';
+      document.getElementById('crewHeaderCard').textContent = card ? `•••• ${card.last_four}` : '•••• ----';
+
+      const myMissing = card ? state.statementLines.filter(s => s.status === 'missing' && !s.receipt_image && s.last_four === card.last_four) : [];
+      document.getElementById('crewMissingAlert').classList.toggle('hidden', myMissing.length === 0);
+      document.getElementById('crewMissingText').innerHTML = myMissing.map(m => `<div>${m.vendor || 'Unknown'} — <strong>${formatCurrency(m.amount)}</strong> (${m.post_date || 'No Date'})</div>`).join('');
+
+      document.getElementById('crewJobSelect').innerHTML = state.jobs.length
+        ? state.jobs.map(j => `<option value="${j.id}">${j.name}</option>`).join('')
+        : `<option value="">-- No Jobs Configured --</option>`;
+
+      document.getElementById('crewCostCodeSelect').innerHTML = state.costCodes.length
+        ? state.costCodes.map(c => `<option value="${c.id}">${c.name}</option>`).join('')
+        : `<option value="">-- No Cost Codes Configured --</option>`;
+
+      const myUploaded = state.statementLines.filter(s => {
+        if (!s.receipt_image) return false;
+        const ocr = getEffectiveOcrData(s);
+        const l4 = ocr.last_four || s.last_four;
+        return !card || !l4 || l4 === card.last_four;
+      });
+
+      document.getElementById('crewHistoryList').innerHTML = myUploaded.map(s => {
+        const ocr = getEffectiveOcrData(s);
+        return `
+          <div onclick="viewReceiptModal('${s.id}')" class="cursor-pointer p-2.5 rounded-xl bg-slate-900 border border-slate-700/80 flex items-center justify-between gap-2 text-xs hover:bg-slate-800">
+            <div class="flex items-center gap-2.5 truncate">
+              <img src="${s.receipt_image}" class="w-10 h-10 rounded-lg object-cover border border-slate-700 shrink-0" />
+              <div class="space-y-0.5 truncate">
+                <div>${ocr.vendor ? `<span class="font-bold text-white">${ocr.vendor}</span>` : redFieldBadge('Vendor')}</div>
+                <div class="text-[11px] text-slate-400 flex flex-wrap gap-1 items-center">
+                  ${ocr.post_date ? `<span>${ocr.post_date}</span>` : redFieldBadge('Date')}
+                  ${ocr.last_four ? `<span>• •••• ${ocr.last_four}</span>` : redFieldBadge('Card #')}
+                </div>
+              </div>
+            </div>
+            <div class="flex items-center gap-2 shrink-0">
+              ${ocr.amount !== null && ocr.amount !== undefined ? `<span class="font-mono font-bold text-emerald-400">${formatCurrency(ocr.amount)}</span>` : redFieldBadge('Total $')}
+              <span class="px-2 py-1 rounded bg-slate-800 text-slate-300 text-[11px] font-semibold">View</span>
+            </div>
+          </div>
+        `;
+      }).join('') || `<p class="text-xs text-slate-500 py-2">No receipts uploaded yet.</p>`;
+    }
+
+    function renderAdminView() {
+      const isCompleteItem = s => s.status === 'matched' && Boolean(s.job_id) && Boolean(s.cost_code_id);
+
+      state.statementLines.forEach(s => {
+        if (s.status === 'matched') {
+          if (!s.job_id || !s.cost_code_id) {
+            s.effectiveStatus = 'missing';
+          } else {
+            s.effectiveStatus = 'matched';
+          }
+        } else {
+          s.effectiveStatus = 'missing';
+        }
+      });
+
+      const matched = state.statementLines.filter(s => s.effectiveStatus === 'matched');
+      const missing = state.statementLines.filter(s => s.effectiveStatus === 'missing');
+      const activeEmpCount = state.employees.filter(e => e.active !== false).length;
+
+      document.getElementById('kpiTotalCards').textContent = activeEmpCount;
+      document.getElementById('kpiMatchedCount').textContent = matched.length;
+      document.getElementById('kpiMatchedDollars').textContent = formatCurrency(matched.reduce((a, b) => a + (Number(b.amount) || 0), 0));
+      document.getElementById('kpiMissingCount').textContent = missing.length;
+      document.getElementById('kpiMissingDollars').textContent = formatCurrency(missing.reduce((a, b) => a + (Number(b.amount) || 0), 0));
+
+      const rosterBadge = document.getElementById('rosterSummaryBadge');
+      if (rosterBadge) {
+        const inactiveCount = state.employees.length - activeEmpCount;
+        rosterBadge.textContent = `${activeEmpCount} Active${inactiveCount > 0 ? ` • ${inactiveCount} Inactive` : ''}`;
+      }
+
+      const exportCountEl = document.getElementById('exportRecordCount');
+      if (exportCountEl) exportCountEl.textContent = state.statementLines.length;
+
+      const filtered = state.statementLines.filter(s => adminFilter === 'all' ? true : s.effectiveStatus === adminFilter);
+      document.getElementById('reconcileFeedContainer').innerHTML = filtered.map(line => {
+        const displayData = line.receipt_image ? getEffectiveOcrData(line) : {
+          vendor: line.vendor,
+          amount: line.amount,
+          post_date: line.post_date,
+          last_four: line.last_four
+        };
+        const effectiveLast4 = displayData.last_four || line.last_four;
+        const card = effectiveLast4 ? state.cards.find(c => c.last_four === effectiveLast4) : null;
+        const emp = card ? state.employees.find(e => e.id === card.assigned_employee_id) : null;
+        const job = state.jobs.find(j => j.id === line.job_id);
+        const cc = state.costCodes.find(c => c.id === line.cost_code_id);
+        const isComplete = line.effectiveStatus === 'matched';
+
+        return `
+          <div class="p-3 rounded-xl ${!isComplete ? 'bg-red-950/40 border border-red-500/40' : 'bg-emerald-950/30 border border-emerald-500/30'} flex flex-wrap justify-between items-center gap-2 text-xs">
+            <div class="flex items-center gap-3">
+              ${line.receipt_image
+                ? `<img onclick="viewReceiptModal('${line.id}')" src="${line.receipt_image}" class="w-11 h-11 rounded-lg object-cover border border-slate-700 cursor-pointer shrink-0" />`
+                : `<div class="w-11 h-11 rounded-lg bg-slate-900 border border-slate-800 flex items-center justify-center text-[10px] font-bold text-red-400 shrink-0">NONE</div>`
+              }
+              <div class="space-y-1">
+                <div class="flex flex-wrap items-center gap-1.5">
+                  ${displayData.vendor ? `<span class="font-bold text-white">${displayData.vendor}</span>` : redFieldBadge('Vendor')}
+                  ${effectiveLast4 ? `<span class="text-slate-300">(•••• ${effectiveLast4}${emp ? ' — ' + emp.full_name : ''})</span>` : redFieldBadge('Card #')}
+                  ${isComplete ? `<span class="px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300 text-[10px] font-bold">✓ Complete</span>` : `<span class="px-1.5 py-0.5 rounded bg-red-500/20 text-red-300 text-[10px] font-bold">⚠ Needs Job/Code</span>`}
+                </div>
+                <div class="text-[11px] text-slate-400 flex flex-wrap items-center gap-1.5">
+                  ${displayData.post_date ? `<span>${displayData.post_date}</span>` : redFieldBadge('Date')}
+                  ${job ? `<span class="text-indigo-300 font-semibold">• ${job.name}</span>` : `<span class="text-red-400">• No Job</span>`}
+                  ${cc ? `<span class="text-indigo-300 font-semibold">• ${cc.name}</span>` : `<span class="text-red-400">• No Cost Code</span>`}
+                </div>
+              </div>
+            </div>
+            <div class="flex items-center gap-2">
+              ${displayData.amount !== null && displayData.amount !== undefined ? `<span class="font-mono font-bold text-sm ${!isComplete ? 'text-red-400' : 'text-emerald-400'}">${formatCurrency(displayData.amount)}</span>` : redFieldBadge('Total $')}
+              <button onclick="viewReceiptModal('${line.id}')" class="px-3 py-1.5 rounded-lg bg-slate-700 hover:bg-slate-600 text-white font-bold text-xs">Inspect</button>
+            </div>
+          </div>
+        `;
+      }).join('') || `<div class="bg-slate-800 border border-slate-700 rounded-2xl p-6 text-center text-xs text-slate-400">No items to display.</div>`;
+
+      document.getElementById('rosterTableBody').innerHTML = state.employees.map(e => {
+        const card = state.cards.find(c => c.assigned_employee_id === e.id);
+        const isActive = e.active !== false;
+        return `<tr class="border-b border-slate-800 ${isActive ? '' : 'opacity-60 bg-slate-900/50'}">
+          <td class="py-2.5 px-2">
+            <div class="font-semibold ${isActive ? 'text-white' : 'text-slate-400 line-through'}">${e.full_name}</div>
+            <span class="inline-block mt-0.5 px-1.5 py-0.2 rounded text-[10px] font-bold ${isActive ? 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/30' : 'bg-amber-500/15 text-amber-300 border border-amber-500/30'}">
+              ${isActive ? 'Active' : 'Inactive'}
+            </span>
+          </td>
+          <td class="py-2.5 px-1.5 font-mono font-bold ${isActive ? 'text-emerald-300' : 'text-slate-400'}">•••• ${card ? card.last_four : '----'}</td>
+          <td class="py-2.5 px-1.5 font-mono text-slate-300">${e.pin || '1234'}</td>
+          <td class="py-2.5 px-2 text-right whitespace-nowrap space-x-1">
+            <button onclick="openEditEmployeeModal('${e.id}')" class="px-2.5 py-1 rounded-lg bg-slate-700 hover:bg-slate-600 text-white font-bold text-[11px] transition">Edit</button>
+            <button onclick="toggleEmployeeActiveStatus('${e.id}')" class="px-2 py-1 rounded-lg font-bold text-[11px] border transition ${isActive ? 'bg-amber-950/60 hover:bg-amber-900/80 text-amber-300 border-amber-500/30' : 'bg-emerald-950/60 hover:bg-emerald-900/80 text-emerald-300 border-emerald-500/30'}">
+              ${isActive ? 'Deactivate' : 'Activate'}
+            </button>
+          </td>
+        </tr>`;
+      }).join('') || `<tr><td colspan="4" class="py-3 text-center text-slate-500">No employees added yet.</td></tr>`;
+
+      document.getElementById('adminJobsList').innerHTML = state.jobs.map(j => `<div class="flex justify-between bg-slate-900 px-3 py-2 rounded-lg text-xs"><span class="text-white">${j.name}</span><button onclick="removeJobName('${j.id}')" class="text-red-400 font-bold">✕</button></div>`).join('') || `<p class="text-xs text-slate-500">No job names added yet.</p>`;
+      document.getElementById('adminCostCodesList').innerHTML = state.costCodes.map(c => `<div class="flex justify-between bg-slate-900 px-3 py-2 rounded-lg text-xs"><span class="text-white">${c.name}</span><button onclick="removeCostCode('${c.id}')" class="text-red-400 font-bold">✕</button></div>`).join('') || `<p class="text-xs text-slate-500">No cost codes added yet.</p>`;
+    }
+
+    function exportReconciledCsv() {
+      if (currentRole !== 'admin') return;
+      const headers = ['Date', 'Card_Last_4', 'Employee', 'Vendor', 'Amount', 'Job_Name', 'Cost_Code'];
+      const rows = state.statementLines.map(l => {
+        const d = l.receipt_image ? getEffectiveOcrData(l) : l;
+        const last4 = d.last_four || l.last_four;
+        const card = last4 ? state.cards.find(c => c.last_four === last4) : null;
+        const emp = card ? state.employees.find(e => e.id === card.assigned_employee_id) : null;
+        const job = state.jobs.find(j => j.id === l.job_id);
+        const cc = state.costCodes.find(c => c.id === l.cost_code_id);
+        return [
+          d.post_date || l.post_date || 'MISSING',
+          last4 || 'MISSING',
+          `"${emp ? emp.full_name : ''}"`,
+          `"${d.vendor || l.vendor || 'MISSING'}"`,
+          (d.amount !== null && d.amount !== undefined) ? Number(d.amount).toFixed(2) : (l.amount !== null ? Number(l.amount).toFixed(2) : 'MISSING'),
+          `"${job ? job.name : ''}"`,
+          `"${cc ? cc.name : ''}"`
+        ].join(',');
+      });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(new Blob([[headers.join(','), ...rows].join('\n')], { type: 'text/csv' }));
+      a.download = `Receipts_Export_${new Date().toISOString().slice(0, 10)}.csv`;
+      a.click();
+    }
+
+    (async function init() {
+      state = await loadStateFromDB();
+      ensureRosterSeeded();
+      await saveState();
+      populateLoginDropdown();
+      switchRole('crew');
+    })();
+  </script>
+</body>
+</html>
