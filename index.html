@@ -7,6 +7,9 @@
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://cdn.jsdelivr.net/npm/heic2any@0.0.4/dist/heic2any.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+  <!-- ADD SUPABASE CLIENT SDK -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <style>
     :root { --safe-bottom: env(safe-area-inset-bottom, 16px); }
     body {
@@ -420,6 +423,45 @@
             <div id="adminCostCodesList" class="space-y-1.5 max-h-52 overflow-y-auto custom-scroll pt-1"></div>
           </div>
         </div>
+        <!-- SAGE CSV SYNC & SUPABASE CONNECTION BOX -->
+          <div class="border-t border-slate-700 pt-4 space-y-3">
+            <h3 class="text-xs font-bold uppercase tracking-wider text-emerald-400">Sage Master CSV Sync (Jobs, Cost Codes & Employees)</h3>
+            <p class="text-[11px] text-slate-400">Export your Job List, Cost Code List, or Employee Roster from Sage as a CSV and upload it here. Existing records will update without breaking historical links.</p>
+            
+            <input type="file" id="sageJobsCsvInput" accept=".csv,.txt" class="hidden" onchange="handleSageCsvImport(event, 'jobs')" />
+            <input type="file" id="sageCostCodesCsvInput" accept=".csv,.txt" class="hidden" onchange="handleSageCsvImport(event, 'cost_codes')" />
+            <input type="file" id="sageEmployeesCsvInput" accept=".csv,.txt" class="hidden" onchange="handleSageCsvImport(event, 'employees')" />
+
+            <div class="grid grid-cols-3 gap-2">
+              <button type="button" onclick="document.getElementById('sageJobsCsvInput').click()" class="py-2.5 px-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-[11px] shadow transition">
+                Import Sage Jobs CSV
+              </button>
+              <button type="button" onclick="document.getElementById('sageCostCodesCsvInput').click()" class="py-2.5 px-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-[11px] shadow transition">
+                Import Cost Codes CSV
+              </button>
+              <button type="button" onclick="document.getElementById('sageEmployeesCsvInput').click()" class="py-2.5 px-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-[11px] shadow transition">
+                Import Sage Employees
+              </button>
+            </div>
+          </div>
+
+          <!-- SUPABASE CREDENTIALS SETUP -->
+          <div class="border-t border-slate-700 pt-4 space-y-2.5">
+            <div class="flex items-center justify-between">
+              <h3 class="text-xs font-bold uppercase tracking-wider text-slate-300">Supabase Cloud Database</h3>
+              <span id="supabaseConnBadge" class="text-[10px] font-mono px-2 py-0.5 rounded bg-slate-900 text-amber-400">Local Only</span>
+            </div>
+            <input type="text" id="sbUrlInput" placeholder="https://xyzcompany.supabase.co" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white font-mono" />
+            <input type="password" id="sbKeyInput" placeholder="Supabase Anon Public Key (eyJ...)" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white font-mono" />
+            <div class="flex gap-2">
+              <button type="button" onclick="saveSupabaseCredentials()" class="flex-1 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow transition">
+                Connect & Sync Supabase
+              </button>
+              <button type="button" onclick="pullFromSupabase()" class="px-4 py-2.5 rounded-xl bg-slate-700 hover:bg-slate-600 text-white font-bold text-xs transition">
+                ↻ Force Pull
+              </button>
+            </div>
+          </div>
       </div>
 
       <!-- PAGE 4: UPLOAD STATEMENT CSV -->
@@ -915,23 +957,314 @@
       });
     }
 
+   // =========================================================================
+    // HYBRID SUPABASE + INDEXEDDB STORAGE & SAGE CSV IMPORTER
+    // =========================================================================
+    let supabaseClient = null;
+
+    function initSupabaseClient() {
+      const url = (localStorage.getItem('fieldops_sb_url') || '').trim();
+      const key = (localStorage.getItem('fieldops_sb_key') || '').trim();
+      const badge = document.getElementById('supabaseConnBadge');
+      const urlInp = document.getElementById('sbUrlInput');
+      const keyInp = document.getElementById('sbKeyInput');
+      if (urlInp && !urlInp.value) urlInp.value = url;
+      if (keyInp && !keyInp.value) keyInp.value = key;
+
+      if (url && key && window.supabase) {
+        supabaseClient = window.supabase.createClient(url, key);
+        if (badge) {
+          badge.textContent = 'Supabase Connected';
+          badge.className = 'text-[10px] font-mono px-2 py-0.5 rounded bg-emerald-950 text-emerald-300 border border-emerald-500/40';
+        }
+        return true;
+      }
+      supabaseClient = null;
+      if (badge) {
+        badge.textContent = 'IndexedDB Local Mode';
+        badge.className = 'text-[10px] font-mono px-2 py-0.5 rounded bg-slate-900 text-amber-400';
+      }
+      return false;
+    }
+
+    async function saveSupabaseCredentials() {
+      const url = document.getElementById('sbUrlInput').value.trim();
+      const key = document.getElementById('sbKeyInput').value.trim();
+      localStorage.setItem('fieldops_sb_url', url);
+      localStorage.setItem('fieldops_sb_key', key);
+      if (initSupabaseClient()) {
+        showSimpleToast('Connecting to Supabase...', false);
+        await saveState(); // Push local state first so nothing is lost
+        await pullFromSupabase();
+        showSimpleToast('Supabase Synced!', false);
+      } else {
+        showSimpleToast('Cleared Supabase Credentials', true);
+      }
+    }
+
+    // Upload Base64 receipt image to Supabase Storage Bucket ('receipts') and return public URL
+    async function ensureReceiptUploadedToStorage(itemId, imageStr) {
+      if (!supabaseClient || !isOnline || !imageStr || !imageStr.startsWith('data:image/')) {
+        return imageStr; // Already a URL or offline
+      }
+      try {
+        const res = await fetch(imageStr);
+        const blob = await res.blob();
+        const filePath = `receipt_${itemId}_${Date.now()}.jpg`;
+        const { error } = await supabaseClient.storage
+          .from('receipts')
+          .upload(filePath, blob, { contentType: 'image/jpeg', upsert: true });
+        if (error) return imageStr;
+
+        const { data: pub } = supabaseClient.storage.from('receipts').getPublicUrl(filePath);
+        return pub?.publicUrl || imageStr;
+      } catch (e) {
+        return imageStr;
+      }
+    }
+
     async function loadStateFromDB() {
+      // 1. Load local IndexedDB cache first for instant startup
+      let localState = getDefaultRosterState();
       try {
         const db = await openDatabase();
-        return new Promise(resolve => {
+        localState = await new Promise(resolve => {
           const req = db.transaction(STORE_NAME, 'readonly').objectStore(STORE_NAME).get('main');
           req.onsuccess = () => resolve(ensurePreloadedRoster(req.result));
           req.onerror = () => resolve(getDefaultRosterState());
         });
-      } catch (e) { return getDefaultRosterState(); }
+      } catch (e) {}
+
+      // 2. If Supabase is configured and online, fetch live tables
+      if (initSupabaseClient() && isOnline) {
+        try {
+          const [empRes, cardRes, jobRes, ccRes, stmtRes] = await Promise.all([
+            supabaseClient.from('employees').select('*').order('full_name'),
+            supabaseClient.from('cards').select('*'),
+            supabaseClient.from('jobs').select('*').eq('active', true).order('name'),
+            supabaseClient.from('cost_codes').select('*').eq('active', true).order('name'),
+            supabaseClient.from('statement_lines').select('*').order('post_date', { ascending: false })
+          ]);
+
+          if (!empRes.error && empRes.data?.length) localState.employees = empRes.data;
+          if (!cardRes.error && cardRes.data?.length) localState.cards = cardRes.data;
+          if (!jobRes.error && jobRes.data) localState.jobs = jobRes.data;
+          if (!ccRes.error && ccRes.data) localState.costCodes = ccRes.data;
+          if (!stmtRes.error && stmtRes.data) {
+            localState.statementLines = stmtRes.data.map(row => ({
+              ...row,
+              amount: row.amount !== null ? Number(row.amount) : null,
+              ocr_amount: row.ocr_amount !== null ? Number(row.ocr_amount) : null
+            }));
+          }
+        } catch (err) {
+          console.warn('Supabase pull fallback to local IndexedDB:', err);
+        }
+      }
+      return ensurePreloadedRoster(localState);
+    }
+
+    async function pullFromSupabase() {
+      state = await loadStateFromDB();
+      populateLoginUserDropdown();
+      renderAll();
     }
 
     async function saveState() {
       updateTopBarIndicators();
+      // 1. Always save to local IndexedDB immediately
       try {
         const db = await openDatabase();
         db.transaction(STORE_NAME, 'readwrite').objectStore(STORE_NAME).put(state, 'main');
       } catch (e) {}
+
+      // 2. Sync to Supabase in background if connected and online
+      if (!supabaseClient || !isOnline) return;
+
+      try {
+        // Convert any newly added Base64 receipt photos to Supabase Storage URLs
+        for (const line of state.statementLines) {
+          if (line.receipt_image && line.receipt_image.startsWith('data:image/')) {
+            line.receipt_image = await ensureReceiptUploadedToStorage(line.id, line.receipt_image);
+          }
+        }
+
+        await Promise.all([
+          state.employees.length ? supabaseClient.from('employees').upsert(
+            state.employees.map(e => ({
+              id: e.id,
+              sage_emp_id: e.sage_emp_id || null,
+              full_name: e.full_name,
+              pin: e.pin || '1234',
+              active: e.active !== false
+            }))
+          ) : Promise.resolve(),
+
+          state.cards.length ? supabaseClient.from('cards').upsert(
+            state.cards.map(c => ({
+              id: c.id,
+              last_four: c.last_four,
+              assigned_employee_id: c.assigned_employee_id
+            }))
+          ) : Promise.resolve(),
+
+          state.jobs.length ? supabaseClient.from('jobs').upsert(
+            state.jobs.map(j => ({
+              id: j.id,
+              sage_job_number: j.sage_job_number || null,
+              name: j.name,
+              active: true
+            }))
+          ) : Promise.resolve(),
+
+          state.costCodes.length ? supabaseClient.from('cost_codes').upsert(
+            state.costCodes.map(c => ({
+              id: c.id,
+              sage_cost_code: c.sage_cost_code || null,
+              name: c.name,
+              active: true
+            }))
+          ) : Promise.resolve(),
+
+          state.statementLines.length ? supabaseClient.from('statement_lines').upsert(
+            state.statementLines.map(s => ({
+              id: s.id,
+              post_date: s.post_date || null,
+              card_id: s.card_id || null,
+              last_four: s.last_four || null,
+              vendor: s.vendor || null,
+              amount: s.amount !== undefined ? s.amount : null,
+              ocr_vendor: s.ocr_vendor || null,
+              ocr_amount: s.ocr_amount !== undefined ? s.ocr_amount : null,
+              ocr_post_date: s.ocr_post_date || null,
+              ocr_last_four: s.ocr_last_four || null,
+              is_statement_row: Boolean(s.is_statement_row),
+              reconciled_with_statement: Boolean(s.reconciled_with_statement),
+              status: s.status || 'missing',
+              job_id: s.job_id || null,
+              cost_code_id: s.cost_code_id || null,
+              receipt_image: s.receipt_image || null
+            }))
+          ) : Promise.resolve()
+        ]);
+      } catch (err) {
+        console.warn('Supabase background sync warning:', err);
+      }
+    }
+
+    // =========================================================================
+    // SAGE MASTER CSV IMPORTER (JOBS, COST CODES, EMPLOYEES)
+    // =========================================================================
+    async function handleSageCsvImport(event, type) {
+      const file = event.target.files?.[0];
+      event.target.value = '';
+      if (!file) return;
+
+      const rawText = await file.text();
+      const lines = rawText.replace(/^\uFEFF/, '').replace(/\r\n/g, '\n').replace(/\r/g, '\n')
+        .split('\n').map(l => l.trim()).filter(Boolean);
+      if (!lines.length) return;
+
+      const delimiter = lines[0].includes('\t') ? '\t' : ',';
+      const rows = lines.map(l => splitCsvRow(l, delimiter));
+
+      // Detect if Row 0 is a header row
+      const firstRowLower = rows[0].map(c => c.toLowerCase()).join(' ');
+      const hasHeader = /job|code|phase|description|name|employee|status|id|number/.test(firstRowLower);
+      const startIdx = hasHeader ? 1 : 0;
+
+      let upserted = 0;
+
+      if (type === 'jobs') {
+        for (let i = startIdx; i < rows.length; i++) {
+          const cols = rows[i];
+          if (!cols.length || !cols[0]) continue;
+          const jobNum = cols[0].trim();
+          const jobDesc = (cols[1] || '').trim();
+          const statusCol = (cols[2] || '').toLowerCase();
+
+          // Skip closed/inactive Sage jobs if status column is present
+          if (statusCol && (statusCol.includes('closed') || statusCol.includes('inactive') || statusCol === '5' || statusCol === '6')) {
+            continue;
+          }
+
+          const combinedName = jobDesc && !jobNum.includes(jobDesc) ? `${jobNum} ${jobDesc}` : jobNum;
+          const existing = state.jobs.find(j => j.sage_job_number === jobNum || j.name.toLowerCase() === combinedName.toLowerCase());
+          if (existing) {
+            existing.name = combinedName;
+            existing.sage_job_number = jobNum;
+          } else {
+            state.jobs.push({
+              id: `job-sage-${jobNum.replace(/[^a-zA-Z0-9_-]/g, '')}`,
+              sage_job_number: jobNum,
+              name: combinedName
+            });
+          }
+          upserted++;
+        }
+      } else if (type === 'cost_codes') {
+        for (let i = startIdx; i < rows.length; i++) {
+          const cols = rows[i];
+          if (!cols.length || !cols[0]) continue;
+          const codeNum = cols[0].trim();
+          const codeDesc = (cols[1] || '').trim();
+          const combinedName = codeDesc && !codeNum.includes(codeDesc) ? `${codeNum} ${codeDesc}` : codeNum;
+
+          const existing = state.costCodes.find(c => c.sage_cost_code === codeNum || c.name.toLowerCase() === combinedName.toLowerCase());
+          if (existing) {
+            existing.name = combinedName;
+            existing.sage_cost_code = codeNum;
+          } else {
+            state.costCodes.push({
+              id: `cc-sage-${codeNum.replace(/[^a-zA-Z0-9_-]/g, '')}`,
+              sage_cost_code: codeNum,
+              name: combinedName
+            });
+          }
+          upserted++;
+        }
+      } else if (type === 'employees') {
+        for (let i = startIdx; i < rows.length; i++) {
+          const cols = rows[i];
+          if (!cols.length) continue;
+          // Supports either [EmployeeName, CardLast4] or [SageEmpID, EmployeeName, CardLast4]
+          const hasIdFirst = /^\d+$/.test(cols[0]) && cols[1] && /[a-zA-Z]/.test(cols[1]);
+          const sageId = hasIdFirst ? cols[0].trim() : null;
+          const fullName = (hasIdFirst ? cols[1] : cols[0] || '').trim();
+          const possibleCard = (hasIdFirst ? cols[2] : cols[1] || '').replace(/\D/g, '').slice(-4);
+          if (!fullName) continue;
+
+          let emp = state.employees.find(e =>
+            (sageId && e.sage_emp_id === sageId) || e.full_name.toLowerCase() === fullName.toLowerCase()
+          );
+
+          if (emp) {
+            emp.full_name = fullName;
+            if (sageId) emp.sage_emp_id = sageId;
+          } else {
+            emp = {
+              id: sageId ? `emp-sage-${sageId}` : `emp-${Date.now()}-${i}`,
+              sage_emp_id: sageId,
+              full_name: fullName,
+              pin: '1234',
+              active: true
+            };
+            state.employees.push(emp);
+          }
+
+          if (possibleCard && possibleCard.length === 4) {
+            let card = state.cards.find(c => c.assigned_employee_id === emp.id);
+            if (card) card.last_four = possibleCard;
+            else state.cards.push({ id: `card-${Date.now()}-${i}`, last_four: possibleCard, assigned_employee_id: emp.id });
+          }
+          upserted++;
+        }
+      }
+
+      await saveState();
+      populateLoginUserDropdown();
+      renderAll();
+      showSimpleToast(`Synced ${upserted} Sage ${type.replace('_', ' ')} records`, false);
     }
 
     async function confirmClearAllData() {
