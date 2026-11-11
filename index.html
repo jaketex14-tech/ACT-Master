@@ -702,70 +702,68 @@
       return source.replace(/[^a-zA-Z0-9._\-]/g, '');
     }
 
-    let preferredEndpointIdx = 0;
-
+  // --- PASTE BELOW getCleanApiKey() AND ABOVE // FULLSCREEN INTERACTIVE ZOOM VIEWER LOGIC ---
     async function callGeminiWithFallback(payload) {
-      const key = getCleanApiKey();
-      if (!key) {
-        return { ok: false, errorReason: 'No API Key configured. Please paste and save your Gemini API Key.' };
-      }
-
-      const baseEndpoints = [
-        {
-          name: 'Google AI Studio',
-          url: `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent?key=${encodeURIComponent(key)}`,
-          headers: { 'Content-Type': 'application/json' }
-        },
-        {
-          name: 'Vertex AI Express',
-          url: `https://aiplatform.googleapis.com/v1beta1/publishers/google/models/gemini-3.8-flash:generateContent?key=${encodeURIComponent(key)}`,
-          headers: { 'Content-Type': 'application/json' }
+      try {
+        const key = getCleanApiKey();
+        if (!key) {
+          return { ok: false, errorReason: 'No API Key configured. Please paste and save your Gemini API Key.' };
         }
-      ];
 
-      const orderedIndices = [
-        preferredEndpointIdx,
-        ...baseEndpoints.map((_, i) => i).filter(i => i !== preferredEndpointIdx)
-      ].filter(i => i >= 0 && i < baseEndpoints.length);
+        // Upgrade legacy 2.5 thinkingBudget to 3.8 thinkingLevel: "LOW" for fast OCR & verification
+        const fastConfig = { ...(payload?.generationConfig || {}) };
+        fastConfig.thinkingConfig = { thinkingLevel: 'LOW' };
+        const fastPayload = { ...payload, generationConfig: fastConfig };
 
-      const errors = [];
-      for (const idx of orderedIndices) {
-        const ep = baseEndpoints[idx];
-        try {
-          let resp = await fetch(ep.url, {
-            method: 'POST',
-            headers: ep.headers,
-            body: JSON.stringify(payload)
-          });
-          let data = await resp.json().catch(() => ({}));
+        const cleanConfig = { ...(payload?.generationConfig || {}) };
+        delete cleanConfig.thinkingConfig;
+        const fallbackPayload = { ...payload, generationConfig: cleanConfig };
 
-          // Auto-retry without legacy 2.5 thinkingConfig if gemini-3.8-flash rejects it
-          if (!resp.ok && payload?.generationConfig?.thinkingConfig) {
-            const cleanPayload = {
-              ...payload,
-              generationConfig: { ...payload.generationConfig }
-            };
-            delete cleanPayload.generationConfig.thinkingConfig;
-            resp = await fetch(ep.url, {
-              method: 'POST',
-              headers: ep.headers,
-              body: JSON.stringify(cleanPayload)
-            });
-            data = await resp.json().catch(() => ({}));
+        const models = ['gemini-3.8-flash', 'gemini-3.7-flash'];
+        const errors = [];
+
+        for (const modelName of models) {
+          const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${encodeURIComponent(key)}`;
+
+          for (const bodyPayload of [fastPayload, fallbackPayload]) {
+            const controller = new AbortController();
+            const timer = setTimeout(() => controller.abort(), 15000);
+
+            try {
+              const resp = await fetch(url, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(bodyPayload),
+                signal: controller.signal
+              });
+              clearTimeout(timer);
+
+              const data = await resp.json().catch(() => ({}));
+              if (resp.ok && data?.candidates?.length) {
+                return { ok: true, data };
+              }
+
+              const errMsg = data?.error?.message || `HTTP ${resp.status}`;
+              // If the error is specifically about thinkingConfig, retry immediately with fallbackPayload
+              if (bodyPayload === fastPayload && /thinking/i.test(errMsg)) {
+                continue;
+              }
+              errors.push(`${modelName}: ${errMsg}`);
+              break;
+            } catch (fetchErr) {
+              clearTimeout(timer);
+              const msg = fetchErr.name === 'AbortError' ? 'Request timed out after 15s' : (fetchErr.message || 'Network error');
+              errors.push(`${modelName}: ${msg}`);
+              break;
+            }
           }
-
-          if (resp.ok && data?.candidates?.length) {
-            preferredEndpointIdx = idx;
-            return { ok: true, data };
-          }
-          errors.push(`${ep.name}: ${data?.error?.message || 'HTTP ' + resp.status}`);
-        } catch (err) {
-          errors.push(`${ep.name}: ${err.message || 'Network request failed'}`);
         }
+
+        return { ok: false, errorReason: errors.join(' | ') || 'Unknown API error' };
+      } catch (fatalErr) {
+        return { ok: false, errorReason: `JS Error: ${fatalErr.message}` };
       }
-      return { ok: false, errorReason: errors.join(' | ') };
     }
-
     // FULLSCREEN INTERACTIVE ZOOM VIEWER LOGIC
     let zoomState = { scale: 1, x: 0, y: 0, isDragging: false, startX: 0, startY: 0, initialPinchDist: null, initialScale: 1, lastTap: 0 };
 
