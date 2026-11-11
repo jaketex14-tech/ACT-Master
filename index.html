@@ -1080,17 +1080,34 @@
       });
     }
 
-    function initSupabaseClient() {
-      const url = (localStorage.getItem('fieldops_sb_url') || '').trim();
-      const key = (localStorage.getItem('fieldops_sb_key') || '').trim();
+   function initSupabaseClient() {
+      const DEFAULT_SB_URL = 'https://vvrhtbhpzkvslwqrhsam.supabase.co';
+      const DEFAULT_SB_KEY = 'sb_publishable_RnNFl0h-qmZOqoSFJgvO8w_kmzbv9zk';
+
+      const url = (localStorage.getItem('fieldops_sb_url') || DEFAULT_SB_URL).trim();
+      const key = (localStorage.getItem('fieldops_sb_key') || DEFAULT_SB_KEY).trim();
       const urlInp = document.getElementById('sbUrlInput');
       const keyInp = document.getElementById('sbKeyInput');
       if (urlInp && !urlInp.value) urlInp.value = url;
       if (keyInp && !keyInp.value) keyInp.value = key;
 
+      // Read the saved Shop Code (or ask once on a new device and save it forever)
+      let shopCode = (localStorage.getItem('fieldops_shop_code') || '').trim();
+      if (!shopCode) {
+        const entered = window.prompt('Enter your company FieldOps Shop Access Code (one-time setup):');
+        if (entered && entered.trim()) {
+          shopCode = entered.trim();
+          try { localStorage.setItem('fieldops_shop_code', shopCode); } catch (e) {}
+        }
+      }
+
       if (url && key && window.supabase) {
         try {
-          supabaseClient = window.supabase.createClient(url, key);
+          supabaseClient = window.supabase.createClient(url, key, {
+            global: {
+              headers: { 'x-fieldops-code': shopCode }
+            }
+          });
           return true;
         } catch (e) {
           supabaseClient = null;
