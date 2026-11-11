@@ -943,11 +943,22 @@
       }
     }
 
-    async function saveCanvasKey() {
+   async function saveCanvasKey() {
       const val = document.getElementById('canvasKeyInput').value.trim();
       state.ocrApiKey = val;
       try { localStorage.setItem('fieldops_canvas_key', val); } catch (e) {}
-      preferredEndpointIdx = 0;
+
+      // Push the OCR key to Supabase so all crew phones receive it automatically
+      if (supabaseClient && isOnline) {
+        try {
+          await supabaseClient.from('app_settings').upsert({
+            id: 'global',
+            ocr_api_key: val,
+            updated_at: new Date().toISOString()
+          });
+        } catch (e) {}
+      }
+
       await saveState();
       updateTopBarIndicators();
       renderOcrKeyPage();
@@ -962,14 +973,24 @@
     async function clearSavedApiKey() {
       state.ocrApiKey = '';
       try { localStorage.removeItem('fieldops_canvas_key'); } catch (e) {}
-      preferredEndpointIdx = 0;
+
+      if (supabaseClient && isOnline) {
+        try {
+          await supabaseClient.from('app_settings').upsert({
+            id: 'global',
+            ocr_api_key: '',
+            updated_at: new Date().toISOString()
+          });
+        } catch (e) {}
+      }
+
       const inputEl = document.getElementById('canvasKeyInput');
       if (inputEl) inputEl.value = '';
       await saveState();
       updateTopBarIndicators();
       renderOcrKeyPage();
       const out = document.getElementById('keyDiagnosticResult');
-      if (out) out.innerHTML = `<div class="p-3 rounded-xl bg-slate-900 border border-slate-700 text-slate-300">Saved API key removed from this device.</div>`;
+      if (out) out.innerHTML = `<div class="p-3 rounded-xl bg-slate-900 border border-slate-700 text-slate-300">Saved API key removed from cloud & device.</div>`;
       showSimpleToast('OCR API Key Removed', true);
     }
 
@@ -1177,12 +1198,13 @@
 
       if (initSupabaseClient() && isOnline) {
         try {
-          const [empRes, cardRes, jobRes, ccRes, stmtRes] = await Promise.all([
+          const [empRes, cardRes, jobRes, ccRes, stmtRes, cfgRes] = await Promise.all([
             supabaseClient.from('employees').select('*').order('full_name'),
             supabaseClient.from('cards').select('*'),
             supabaseClient.from('jobs').select('*').eq('active', true).order('name'),
             supabaseClient.from('cost_codes').select('*').eq('active', true).order('name'),
-            supabaseClient.from('statement_lines').select('*').order('post_date', { ascending: false })
+            supabaseClient.from('statement_lines').select('*').order('post_date', { ascending: false }),
+            supabaseClient.from('app_settings').select('ocr_api_key').eq('id', 'global').maybeSingle()
           ]);
 
           if (!empRes.error && empRes.data?.length) localState.employees = empRes.data;
@@ -1195,6 +1217,10 @@
               amount: row.amount !== null && row.amount !== undefined ? Number(row.amount) : null,
               ocr_amount: row.ocr_amount !== null && row.ocr_amount !== undefined ? Number(row.ocr_amount) : null
             }));
+          }
+          if (!cfgRes.error && cfgRes.data?.ocr_api_key) {
+            localState.ocrApiKey = cfgRes.data.ocr_api_key;
+            try { localStorage.setItem('fieldops_canvas_key', cfgRes.data.ocr_api_key); } catch (e) {}
           }
         } catch (err) {
           console.warn('Supabase pull fallback to IndexedDB:', err);
