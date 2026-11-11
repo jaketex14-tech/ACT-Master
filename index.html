@@ -1101,27 +1101,21 @@
       });
     }
 
-   function initSupabaseClient() {
-      const DEPLOYED_SB_URL    = '__SUPABASE_URL__';
-      const DEPLOYED_SB_KEY    = '__SUPABASE_KEY__';
-      const DEPLOYED_SHOP_CODE = '__FIELDOPS_SECRET__';
+  function initSupabaseClient() {
+      const DEFAULT_SB_URL = "https://vvrhtbhpzkvslwqrhsam.supabase.co";
+      const DEFAULT_SB_KEY = "sb_publishable_RnNFl0h-qmZOqoSFJgvO8w_kmzbv9zk";
 
-      const FALLBACK_SB_URL = 'https://vvrhtbhpzkvslwqrhsam.supabase.co';
-      const FALLBACK_SB_KEY = 'sb_publishable_RnNFl0h-qmZOqoSFJgvO8w_kmzbv9zk';
+      const url = (localStorage.getItem("fieldops_sb_url") || DEFAULT_SB_URL).trim();
+      const key = (localStorage.getItem("fieldops_sb_key") || DEFAULT_SB_KEY).trim();
 
-      const url = (!DEPLOYED_SB_URL.startsWith('__') ? DEPLOYED_SB_URL : (localStorage.getItem('fieldops_sb_url') || FALLBACK_SB_URL)).trim();
-      const key = (!DEPLOYED_SB_KEY.startsWith('__') ? DEPLOYED_SB_KEY : (localStorage.getItem('fieldops_sb_key') || FALLBACK_SB_KEY)).trim();
-      const shopCode = (!DEPLOYED_SHOP_CODE.startsWith('__') ? DEPLOYED_SHOP_CODE : (localStorage.getItem('fieldops_shop_code') || '')).trim();
-
-      const urlInp = document.getElementById('sbUrlInput');
-      const keyInp = document.getElementById('sbKeyInput');
+      const urlInp = document.getElementById("sbUrlInput");
+      const keyInp = document.getElementById("sbKeyInput");
       if (urlInp && !urlInp.value) urlInp.value = url;
       if (keyInp && !keyInp.value) keyInp.value = key;
 
       if (url && key && window.supabase) {
         try {
-          const options = shopCode ? { global: { headers: { 'x-fieldops-code': shopCode } } } : {};
-          supabaseClient = window.supabase.createClient(url, key, options);
+          supabaseClient = window.supabase.createClient(url, key);
           return true;
         } catch (e) {
           supabaseClient = null;
@@ -1131,7 +1125,6 @@
       supabaseClient = null;
       return false;
     }
-
     async function saveSupabaseCredentials() {
       const url = document.getElementById('sbUrlInput').value.trim();
       const key = document.getElementById('sbKeyInput').value.trim();
