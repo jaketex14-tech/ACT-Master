@@ -710,7 +710,6 @@
         return { ok: false, errorReason: 'No API Key configured. Please paste and save your Gemini API Key.' };
       }
 
-      // Supports both Google AI Studio keys (AIza... / AQ....) and Vertex AI Express Mode keys (AQ.Ab8...)
       const baseEndpoints = [
         {
           name: 'Google AI Studio',
@@ -733,14 +732,30 @@
       for (const idx of orderedIndices) {
         const ep = baseEndpoints[idx];
         try {
-          const resp = await fetch(ep.url, {
+          let resp = await fetch(ep.url, {
             method: 'POST',
             headers: ep.headers,
             body: JSON.stringify(payload)
           });
-          const data = await resp.json().catch(() => ({}));
+          let data = await resp.json().catch(() => ({}));
+
+          // Auto-retry without legacy 2.5 thinkingConfig if gemini-3.8-flash rejects it
+          if (!resp.ok && payload?.generationConfig?.thinkingConfig) {
+            const cleanPayload = {
+              ...payload,
+              generationConfig: { ...payload.generationConfig }
+            };
+            delete cleanPayload.generationConfig.thinkingConfig;
+            resp = await fetch(ep.url, {
+              method: 'POST',
+              headers: ep.headers,
+              body: JSON.stringify(cleanPayload)
+            });
+            data = await resp.json().catch(() => ({}));
+          }
+
           if (resp.ok && data?.candidates?.length) {
-            preferredEndpointIdx = idx; // Cache the working endpoint for this key
+            preferredEndpointIdx = idx;
             return { ok: true, data };
           }
           errors.push(`${ep.name}: ${data?.error?.message || 'HTTP ' + resp.status}`);
