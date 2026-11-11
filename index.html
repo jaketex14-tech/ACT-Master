@@ -702,7 +702,8 @@
       return source.replace(/[^a-zA-Z0-9._\-]/g, '');
     }
 
-  // --- PASTE BELOW getCleanApiKey() AND ABOVE // FULLSCREEN INTERACTIVE ZOOM VIEWER LOGIC ---
+ let cachedWorkingModel = null;
+
     async function callGeminiWithFallback(payload) {
       try {
         const key = getCleanApiKey();
@@ -710,56 +711,79 @@
           return { ok: false, errorReason: 'No API Key configured. Please paste and save your Gemini API Key.' };
         }
 
-        // Upgrade legacy 2.5 thinkingBudget to 3.8 thinkingLevel: "LOW" for fast OCR & verification
-        const fastConfig = { ...(payload?.generationConfig || {}) };
-        fastConfig.thinkingConfig = { thinkingLevel: 'LOW' };
-        const fastPayload = { ...payload, generationConfig: fastConfig };
+        // 1. Strip all thinkingConfig parameters so v1beta never throws a 503/400 schema error
+        const cleanPayload = { ...payload };
+        if (cleanPayload.generationConfig) {
+          cleanPayload.generationConfig = { ...cleanPayload.generationConfig };
+          delete cleanPayload.generationConfig.thinkingConfig;
+        }
 
-        const cleanConfig = { ...(payload?.generationConfig || {}) };
-        delete cleanConfig.thinkingConfig;
-        const fallbackPayload = { ...payload, generationConfig: cleanConfig };
+        // 2. Query /v1beta/models to get the exact live Flash models enabled for this key
+        let candidateModels = ['gemini-3.8-flash', 'gemini-2.5-flash-lite', 'gemini-2.0-flash'];
+        try {
+          const listResp = await fetch(
+            `https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(key)}`
+          );
+          if (listResp.ok) {
+            const listData = await listResp.json();
+            const liveFlashModels = (listData.models || [])
+              .filter(m => Array.isArray(m.supportedGenerationMethods) && m.supportedGenerationMethods.includes('generateContent'))
+              .map(m => m.name.replace(/^models\//, ''))
+              .filter(name => /flash/i.test(name) && !/^gemini-2\.5-flash$/i.test(name));
 
-        const models = ['gemini-3.8-flash', 'gemini-3.7-flash'];
-        const errors = [];
-
-        for (const modelName of models) {
-          const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${encodeURIComponent(key)}`;
-
-          for (const bodyPayload of [fastPayload, fallbackPayload]) {
-            const controller = new AbortController();
-            const timer = setTimeout(() => controller.abort(), 15000);
-
-            try {
-              const resp = await fetch(url, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(bodyPayload),
-                signal: controller.signal
-              });
-              clearTimeout(timer);
-
-              const data = await resp.json().catch(() => ({}));
-              if (resp.ok && data?.candidates?.length) {
-                return { ok: true, data };
-              }
-
-              const errMsg = data?.error?.message || `HTTP ${resp.status}`;
-              // If the error is specifically about thinkingConfig, retry immediately with fallbackPayload
-              if (bodyPayload === fastPayload && /thinking/i.test(errMsg)) {
-                continue;
-              }
-              errors.push(`${modelName}: ${errMsg}`);
-              break;
-            } catch (fetchErr) {
-              clearTimeout(timer);
-              const msg = fetchErr.name === 'AbortError' ? 'Request timed out after 15s' : (fetchErr.message || 'Network error');
-              errors.push(`${modelName}: ${msg}`);
-              break;
+            if (liveFlashModels.length > 0) {
+              candidateModels = [...new Set(['gemini-3.8-flash', ...liveFlashModels])];
             }
+          } else {
+            const errData = await listResp.json().catch(() => ({}));
+            return {
+              ok: false,
+              errorReason: errData?.error?.message || `API Key rejected (HTTP ${listResp.status})`
+            };
+          }
+        } catch (e) {
+          // If model list fetch fails, continue with default candidateModels
+        }
+
+        // Prioritize the last model that succeeded during this session
+        if (cachedWorkingModel && candidateModels.includes(cachedWorkingModel)) {
+          candidateModels = [
+            cachedWorkingModel,
+            ...candidateModels.filter(m => m !== cachedWorkingModel)
+          ];
+        }
+
+        // 3. Try candidate models with an 8-second timeout per model
+        const errors = [];
+        for (const modelName of candidateModels) {
+          const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${encodeURIComponent(key)}`;
+          const controller = new AbortController();
+          const timer = setTimeout(() => controller.abort(), 12000);
+
+          try {
+            const resp = await fetch(url, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(cleanPayload),
+              signal: controller.signal
+            });
+            clearTimeout(timer);
+
+            const data = await resp.json().catch(() => ({}));
+            if (resp.ok && data?.candidates?.length) {
+              cachedWorkingModel = modelName;
+              return { ok: true, data };
+            }
+
+            errors.push(`${modelName}: ${data?.error?.message || 'HTTP ' + resp.status}`);
+          } catch (fetchErr) {
+            clearTimeout(timer);
+            const msg = fetchErr.name === 'AbortError' ? 'Timed out (12s)' : (fetchErr.message || 'Network error');
+            errors.push(`${modelName}: ${msg}`);
           }
         }
 
-        return { ok: false, errorReason: errors.join(' | ') || 'Unknown API error' };
+        return { ok: false, errorReason: errors.join(' | ') };
       } catch (fatalErr) {
         return { ok: false, errorReason: `JS Error: ${fatalErr.message}` };
       }
