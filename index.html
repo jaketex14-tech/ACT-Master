@@ -706,22 +706,30 @@
 
     async function callGeminiWithFallback(payload) {
       const key = getCleanApiKey();
-      const baseEndpoints = [];
-      if (key) {
-        baseEndpoints.push({
-          url: `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${encodeURIComponent(key)}`,
-          headers: { 'Content-Type': 'application/json', 'x-goog-api-key': key }
-        });
+      if (!key) {
+        return { ok: false, errorReason: 'No API Key configured. Please paste and save your Gemini API Key.' };
       }
-      baseEndpoints.push({
-        url: `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent`,
-        headers: { 'Content-Type': 'application/json' }
-      });
 
-      const orderedIndices = [preferredEndpointIdx, ...baseEndpoints.map((_, i) => i).filter(i => i !== preferredEndpointIdx)]
-        .filter(i => i >= 0 && i < baseEndpoints.length);
+      // Supports both Google AI Studio keys (AIza... / AQ....) and Vertex AI Express Mode keys (AQ.Ab8...)
+      const baseEndpoints = [
+        {
+          name: 'Google AI Studio',
+          url: `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${encodeURIComponent(key)}`,
+          headers: { 'Content-Type': 'application/json' }
+        },
+        {
+          name: 'Vertex AI Express',
+          url: `https://aiplatform.googleapis.com/v1beta1/publishers/google/models/gemini-2.5-flash:generateContent?key=${encodeURIComponent(key)}`,
+          headers: { 'Content-Type': 'application/json' }
+        }
+      ];
 
-      let lastErr = 'Unknown API error';
+      const orderedIndices = [
+        preferredEndpointIdx,
+        ...baseEndpoints.map((_, i) => i).filter(i => i !== preferredEndpointIdx)
+      ].filter(i => i >= 0 && i < baseEndpoints.length);
+
+      const errors = [];
       for (const idx of orderedIndices) {
         const ep = baseEndpoints[idx];
         try {
@@ -732,15 +740,15 @@
           });
           const data = await resp.json().catch(() => ({}));
           if (resp.ok && data?.candidates?.length) {
-            preferredEndpointIdx = idx;
+            preferredEndpointIdx = idx; // Cache the working endpoint for this key
             return { ok: true, data };
           }
-          lastErr = data?.error?.message || `HTTP ${resp.status}`;
+          errors.push(`${ep.name}: ${data?.error?.message || 'HTTP ' + resp.status}`);
         } catch (err) {
-          lastErr = err.message || 'Network request failed';
+          errors.push(`${ep.name}: ${err.message || 'Network request failed'}`);
         }
       }
-      return { ok: false, errorReason: lastErr };
+      return { ok: false, errorReason: errors.join(' | ') };
     }
 
     // FULLSCREEN INTERACTIVE ZOOM VIEWER LOGIC
