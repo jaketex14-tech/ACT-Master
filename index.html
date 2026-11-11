@@ -1102,13 +1102,15 @@
     }
 
    function initSupabaseClient() {
-      // GitHub Actions automatically replaces these 3 placeholders during deployment
       const DEPLOYED_SB_URL    = '__SUPABASE_URL__';
       const DEPLOYED_SB_KEY    = '__SUPABASE_KEY__';
       const DEPLOYED_SHOP_CODE = '__FIELDOPS_SECRET__';
 
-      const url = (!DEPLOYED_SB_URL.startsWith('__') ? DEPLOYED_SB_URL : (localStorage.getItem('fieldops_sb_url') || '')).trim();
-      const key = (!DEPLOYED_SB_KEY.startsWith('__') ? DEPLOYED_SB_KEY : (localStorage.getItem('fieldops_sb_key') || '')).trim();
+      const FALLBACK_SB_URL = 'https://vvrhtbhpzkvslwqrhsam.supabase.co';
+      const FALLBACK_SB_KEY = 'sb_publishable_RnNFl0h-qmZOqoSFJgvO8w_kmzbv9zk';
+
+      const url = (!DEPLOYED_SB_URL.startsWith('__') ? DEPLOYED_SB_URL : (localStorage.getItem('fieldops_sb_url') || FALLBACK_SB_URL)).trim();
+      const key = (!DEPLOYED_SB_KEY.startsWith('__') ? DEPLOYED_SB_KEY : (localStorage.getItem('fieldops_sb_key') || FALLBACK_SB_KEY)).trim();
       const shopCode = (!DEPLOYED_SHOP_CODE.startsWith('__') ? DEPLOYED_SHOP_CODE : (localStorage.getItem('fieldops_shop_code') || '')).trim();
 
       const urlInp = document.getElementById('sbUrlInput');
@@ -1118,11 +1120,8 @@
 
       if (url && key && window.supabase) {
         try {
-          supabaseClient = window.supabase.createClient(url, key, {
-            global: {
-              headers: { 'x-fieldops-code': shopCode }
-            }
-          });
+          const options = shopCode ? { global: { headers: { 'x-fieldops-code': shopCode } } } : {};
+          supabaseClient = window.supabase.createClient(url, key, options);
           return true;
         } catch (e) {
           supabaseClient = null;
@@ -1149,7 +1148,7 @@
         if (diag) {
           diag.innerHTML = ok
             ? `<div class="p-3 rounded-xl bg-emerald-950 border border-emerald-500 text-emerald-200 font-semibold">✓ Connected to Supabase! Employees, Cards, Jobs, Cost Codes & Receipts synced.</div>`
-            : `<div class="p-3 rounded-xl bg-amber-950 border border-amber-500 text-amber-200 font-semibold">Connected, but make sure you ran the SQL table setup script in your Supabase SQL Editor.</div>`;
+            : `<div class="p-3 rounded-xl bg-amber-950 border border-amber-500 text-amber-200 font-semibold">Connected, but check your Supabase SQL policies.</div>`;
         }
       } else {
         updateTopBarIndicators();
