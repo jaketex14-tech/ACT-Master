@@ -3,7 +3,13 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
-  <title>FieldOps — Receipts, Reconciler & Sage/Supabase Sync</title>
+  <title>ACT</title>
+  <meta name="application-name" content="ACT" />
+  <meta name="apple-mobile-web-app-title" content="ACT" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="theme-color" content="#0f172a" />
+  <link rel="icon" type="image/png" href="ACT%20Master%20App%20Icon.png" />
+  <link rel="apple-touch-icon" href="ACT%20Master%20App%20Icon.png" />
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://cdn.jsdelivr.net/npm/heic2any@0.0.4/dist/heic2any.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
@@ -27,6 +33,134 @@
     }
   </style>
 </head>
+ <script id="actBrandingModule">
+    (function applyActBranding() {
+      const LOGO_SRC = 'ACT%20Master%20App%20Icon.png';
+
+      // Strip card numbers, roles, and parentheses from the Login Screen user list
+      function cleanLoginUsernames() {
+        const loginView = document.getElementById('viewLogin');
+        if (!loginView) return;
+
+        loginView.querySelectorAll('select option').forEach(opt => {
+          const val = (opt.value || '').trim();
+          if (!val) return; // Leave the "-- Select User --" placeholder intact
+
+          // 1. If option value matches an employee ID in state.employees, use their exact full_name
+          if (typeof state !== 'undefined' && Array.isArray(state.employees)) {
+            const emp = state.employees.find(e => String(e.id) === val || e.full_name === val);
+            if (emp && emp.full_name) {
+              const cleanName = emp.full_name.trim();
+              if (opt.textContent !== cleanName) opt.textContent = cleanName;
+              return;
+            }
+          }
+
+          // 2. Fallback: strip any trailing "(•••• 1234)", "— Card", "- Admin", or bullet suffixes
+          const stripped = (opt.textContent || '')
+            .replace(/\s*[\(\[•—–-].*$/, '')
+            .trim();
+          if (stripped && opt.textContent !== stripped) {
+            opt.textContent = stripped;
+          }
+        });
+      }
+
+      function updateDomBranding() {
+        document.title = 'ACT';
+
+        // 1. Replace every "FO" badge with your transparent ACT Master App Icon PNG
+        document.querySelectorAll('div, span').forEach(el => {
+          if (el.children.length === 0 && (el.textContent || '').trim() === 'FO') {
+            const isLoginLogo = Boolean(el.closest('#viewLogin'));
+
+            el.innerHTML = `<img src="${LOGO_SRC}" alt="ACT" class="w-full h-full object-contain drop-shadow-lg" />`;
+            el.classList.remove(
+              'w-8', 'h-8', 'w-9', 'h-9', 'w-10', 'h-10', 'w-11', 'h-11',
+              'w-12', 'h-12', 'w-14', 'h-14', 'w-16', 'h-16',
+              'bg-emerald-500', 'bg-emerald-600', 'bg-slate-900',
+              'border', 'border-slate-700', 'p-2'
+            );
+            el.classList.add('overflow-hidden', 'p-0', 'bg-transparent', 'border-0');
+
+            if (isLoginLogo) {
+              el.classList.add('w-28', 'h-28', 'mx-auto', 'mb-2');
+            } else {
+              el.classList.add('w-10', 'h-10', 'shrink-0');
+            }
+          }
+        });
+
+        // 2. Replace visible "FieldOps" headings and text with "ACT"
+        const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, null, false);
+        let node;
+        while ((node = walker.nextNode())) {
+          const parentTag = node.parentNode && node.parentNode.tagName;
+          if (parentTag !== 'SCRIPT' && parentTag !== 'STYLE' && /FieldOps/i.test(node.nodeValue)) {
+            node.nodeValue = node.nodeValue
+              .replace(/FieldOps\s+Pro/gi, 'ACT')
+              .replace(/FieldOps/gi, 'ACT');
+          }
+        }
+
+        // 3. Keep login screen usernames strictly to the user's name
+        cleanLoginUsernames();
+      }
+
+      // Hook populateLoginUserDropdown & watch #viewLogin so Supabase syncs stay clean
+      function watchLoginDropdown() {
+        if (typeof window.populateLoginUserDropdown === 'function') {
+          const _origPopulate = window.populateLoginUserDropdown;
+          window.populateLoginUserDropdown = function() {
+            const res = _origPopulate.apply(this, arguments);
+            cleanLoginUsernames();
+            return res;
+          };
+        }
+
+        const loginView = document.getElementById('viewLogin');
+        if (loginView && window.MutationObserver) {
+          const obs = new MutationObserver(() => cleanLoginUsernames());
+          obs.observe(loginView, { childList: true, subtree: true });
+        }
+      }
+
+      function injectActManifest() {
+        if (document.getElementById('actPwaManifest')) return;
+        const iconAbsUrl = new URL(LOGO_SRC, window.location.href).href;
+        const manifest = {
+          name: 'ACT',
+          short_name: 'ACT',
+          start_url: window.location.pathname || './',
+          display: 'standalone',
+          background_color: '#0f172a',
+          theme_color: '#0f172a',
+          icons: [
+            { src: iconAbsUrl, sizes: '192x192', type: 'image/png', purpose: 'any' },
+            { src: iconAbsUrl, sizes: '512x512', type: 'image/png', purpose: 'any' }
+          ]
+        };
+        const blob = new Blob([JSON.stringify(manifest)], { type: 'application/manifest+json' });
+        const link = document.createElement('link');
+        link.id = 'actPwaManifest';
+        link.rel = 'manifest';
+        link.href = URL.createObjectURL(blob);
+        document.head.appendChild(link);
+      }
+
+      if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', () => {
+          updateDomBranding();
+          watchLoginDropdown();
+          injectActManifest();
+        });
+      } else {
+        updateDomBranding();
+        watchLoginDropdown();
+        injectActManifest();
+      }
+    })();
+  </script>
 <body class="min-h-screen selection:bg-emerald-500 selection:text-white">
 
   <!-- MINIMALIST STATUS TOAST -->
